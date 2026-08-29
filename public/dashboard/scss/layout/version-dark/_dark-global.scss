@@ -1,0 +1,134 @@
+[data-theme-version="dark"] {
+
+	.alert-dark,
+	.light.badge-dark,
+	.light.btn-dark {
+		background-color: rgba(177, 177, 177, 0.35);
+		border-color: rgba(177, 177, 177, 0.35);
+	}
+
+	.light.btn-dark {
+		&:hover {
+			background-color: $dark;
+			border-color: $dark;
+		}
+	}
+
+	.btn-outline-dark {
+		color: $white;
+	}
+
+	.brand-title,
+	.invoice-logo .logo-compact,
+	.signature-media img {
+		filter: brightness(21.5);
+	}
+
+	.authincation {
+		background-image: url(../images/student-bg-Recovered.jpg) !important;
+	}
+
+	.morris_chart_height text tspan {
+		fill: $white;
+	}
+
+	.apexcharts-gridlines-horizontal line {
+		stroke: $d-border;
+	}
+
+	.stacked-2:after {
+		background-color: $dark-card;
+	}
+
+	.ct-grid {
+		stroke: rgba(255, 255, 255, 0.1);
+	}
+
+	.apexcharts-legend-text {
+		color: white !important;
+	}
+
+	.apexcharts-legend-marker {
+		border-color: $d-border !important;
+	}
+
+	.apexcharts-inner {
+		line {
+			stroke: $d-border;
+		}
+
+	}
+
+	.nav-link {
+		svg {
+			path {
+				stroke: white;
+			}
+		}
+	}
+
+	.campaign-tabs .nav.nav-tabs .nav-link.active {
+		color: white;
+	}
+
+	#UserInsight1,
+	#UserInsight,
+	#UserInsight2,
+	#UserInsight3,
+	#UserInsight4,
+	#UserInsight5,
+	#NewCustomers,
+	#NewAudience,
+	#Camp1,
+	#Camp2,
+	#Camp3,
+	#Camp4,
+	#Insight {
+		line {
+			stroke: $dark-card;
+		}
+	}
+	.noUi-target{
+		box-shadow: none;
+	}
+
+	.bg-white {
+		background-color: rgba(32, 32, 32,1) !important;
+	}
+	.campaign-most ul li span{
+		color: white;
+	}
+	.dropzone{
+		background:$d-bg;
+	}
+	.dz-dropzone-box .light.btn-primary{
+		background:$d-bg;
+		border-color: $d-border;
+	}
+
+	.search-area.style-1 .form-control,
+	.search-area.style-1 .input-group-text {
+		background-color: rgba(32, 32, 32,1) !important;
+	}
+	.to-dodroup .sub-card .d-items{
+		background-color: $dark-card;
+	}
+	.widget-timeline-status .timeline > li:not(:last-child):after{
+		background-color: white;
+	}
+	.widget-timeline-icons .timeline-media{
+		background-color: $d-bg;
+	}
+	.widget-timeline-icons .timeline > li:not(:last-child):before{
+		border-color: $d-border;
+	}
+	.btn{
+		&.btn-outline-light{
+			&:hover{
+				background-color: $d-bg;
+				border-color: $d-border;
+			}
+		}
+	}
+
+}

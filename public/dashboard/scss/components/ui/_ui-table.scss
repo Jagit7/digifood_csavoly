@@ -1,0 +1,23 @@
+.table-striped-thead,
+table.dataTable.table-striped-thead{
+	tbody tr td{
+		border-bottom: 1px solid var(--border);
+	}
+}
+.table-wide,
+table.dataTable.table-wide{
+	thead tr th:first-child,
+	tbody tr td:first-child{
+		padding-left: 1.25rem;
+	}
+	thead tr th:last-child,
+	tbody tr td:last-child{
+		padding-right: 1.25rem;
+	}
+}
+.dataTables_wrapper .dataTables_info {
+    color: var(--text-gray);
+}
+.aikit-table .dt-buttons {
+	display: none;
+}

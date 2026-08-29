@@ -1,0 +1,388 @@
+.search-area {
+	&.style-1 {
+		width: 555px;
+
+		.form-control,
+		.input-group-text {
+			background-color: white;
+		}
+	}
+}
+
+.cp-text {
+	justify-content: end;
+
+	@include respond ('phone-land') {
+		justify-content: unset;
+		margin-top: 2rem;
+	}
+}
+
+@include respond ('tab-land') {
+	.campaign-list {
+		margin-bottom: 20px;
+	}
+}
+
+.network-grid {
+	h3 {
+		font-size: 18px;
+		font-weight: bold;
+		color: black;
+	}
+
+	border-bottom: 1px solid var(--border);
+	padding: 1.875rem;
+}
+
+//analytics
+
+.insight-data {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-top: 25px;
+	flex-wrap: wrap;
+
+	h4 {
+		font-size: 20px;
+		font-weight: bold;
+
+
+	}
+	@include respond ('phone'){
+		li{
+			margin-bottom: 1rem;
+		}
+		h4{
+			font-weight: 600;
+			font-size: 14px;
+		}
+	}
+}
+
+.text-ov {
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	display: block;
+}
+
+#overview-chart {
+	.apexcharts-legend-text {
+		padding-left: 7px;
+	}
+
+	.apexcharts-legend-series {
+		margin: 2px 20px;
+		padding: 4px 0;
+
+		@include respond ('tab-land') {
+			margin: 2px 4px;
+			.apexcharts-legend-marker {
+				height: 11px!important;
+				width: 11px!important;
+			}
+
+		}
+	}
+
+	[seriesname="seriesx4"] {
+		margin-left: 0;
+	}
+}
+
+.campaign-most {
+	border-bottom: 1px solid var(--border);
+	padding: 1.875rem;
+
+	span {
+		color: var(--secondary);
+	}
+
+	h4 {
+		font-size: 16px;
+		font-weight: 600;
+		color: #2E2E2E;
+		padding: 9px 0;
+	}
+
+	ul {
+		li {
+			display: flex;
+			justify-content: space-between;
+			margin-bottom: 15px;
+
+			span {
+				color: black;
+			}
+		}
+	}
+
+}
+
+.form-row {
+	.form-label {
+		font-size: 16px;
+		font-weight: 600;
+	}
+}
+
+.tag_complete .tags_container .tag {
+	padding: 4px 12px;
+	background-color: #FFF8E0;
+	font-size: 16px;
+	font-weight: 400;
+	border-radius: $radius-lg;
+	color: #FF7D34;
+}
+
+.tag_complete_main {
+	border: 1px solid var(--border);
+	padding: 26px 11px 69px 8px;
+	border-radius: $radius-lg;
+
+}
+
+.date-icon {
+	position: relative;
+
+	.date-ic {
+		background-color: var(--primary);
+		height: 45px;
+		width: 45px;
+		padding: 9px;
+		border-radius: $radius;
+		border: 1px solid var(--primary);
+		position: absolute;
+		top: 32px;
+		right: 0;
+
+		pointer-events: none;
+		cursor: pointer;
+	}
+}
+
+.dz-dropzone-box {
+	padding: 0;
+	border: 0;
+	display: flex;
+	align-items: start;
+	flex-flow: wrap;
+
+	.upload-btn {
+		svg {
+			margin-bottom: 10px;
+		}
+	}
+
+	&.dropzone .dlab-message .dlab-button {
+		display: none;
+	}
+
+}
+
+.dz-dropzone-box .upload-btn i {
+	height: 54px;
+	width: 54px;
+	background: var(--primary);
+	border-radius: 14px;
+	line-height: 56px;
+	color: #fff;
+}
+
+.dz-dropzone-box .light.btn-primary {
+	height: 440px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: #EEEEEE;
+	color: #717579;
+	border: 2px dashed #FFFFFF;
+
+	&:hover {
+		g [fill] {
+			fill: #717579;
+		}
+	}
+
+	g [fill] {
+		fill: #717579;
+	}
+
+	&:focus {
+		box-shadow: none;
+	}
+}
+
+.dz-dropzone-box .dz-default {
+	display: none;
+
+}
+
+.dropzone-panel {
+	width: 100%;
+	padding: 30px;
+	border: 2px dashed #717579;
+	border-radius: $radius-lg;
+	margin-bottom: 1rem;
+}
+
+.dz-dropzone-box .dropzone-items {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 26px;
+}
+
+.dz-dropzone-box .dropzone-items .file-icon i {
+	height: 54px;
+	width: 54px;
+	background: var(--primary);
+	border-radius: 14px;
+	line-height: 56px;
+	text-align: center;
+	font-size: 20px;
+	color: white
+}
+
+.dz-dropzone-box .dropzone-items .dropzone-toolbar .dropzone-delete {
+	top: -6px;
+	right: -7px;
+	position: absolute;
+	height: 24px;
+	width: 24px;
+	text-align: center;
+	line-height: 24px;
+	color: white;
+	font-size: 18px;
+	border-radius: 50%;
+	background: red;
+}
+
+.dz-dropzone-box .dropzone-item {
+	background: #C4C4C4;
+	display: flex;
+	border-radius: $radius;
+	border: 2px solid #C4C4C4;
+	border-radius: $radius-lg;
+	height: 120px;
+	width: 120px;
+	text-align: center;
+	justify-content: center;
+	line-height: 120px;
+	position: relative;
+}
+
+.dz-dropzone-box .dropzone-item .dropzone-toolbar {
+	cursor: pointer;
+	margin-left: 8px;
+}
+
+.dz-dropzone-box .dropzone-item .dropzone-filename {
+	font-size: 14px;
+	display: none;
+}
+
+.dz-dropzone-box .dropzone-item .dropzone-filename strong {
+	font-size: 12px;
+	font-weight: 600;
+	opacity: 0.9;
+}
+
+.dropzone-select {
+	&:hover {
+		background-color: #EEEEEE;
+	}
+}
+
+.dropzone-error {
+	display: none;
+}
+
+.social-stram {
+	display: flex;
+	align-items: center;
+	position: relative;
+
+	.social-status {
+		margin-bottom: 0;
+	}
+
+	.status-progress {
+		.label-head {
+			font-size: 16px;
+			color: var(--secondary);
+			margin-bottom: 8px;
+		}
+	}
+
+	.form-check {
+		position: absolute;
+		right: 15px;
+	}
+
+	.form-check-label {
+		display: flex;
+		align-items: center;
+		border: 1px solid var(--border);
+		padding: 15px;
+		border-radius: $radius;
+		cursor: pointer;
+		width: 100%;
+	}
+}
+
+.format-slider {
+	.form-control {
+		margin-bottom: 15px;
+		font-size: 20px;
+		font-weight: bold;
+		color: var(--secondary);
+	}
+}
+
+.noUi-base,
+.noUi-connects {
+	height: 10px;
+	border-radius: $radius-lg;
+}
+
+.noUi-horizontal .noUi-handle,
+.noUi-vertical .noUi-handle {
+	height: 18px;
+	width: 18px;
+}
+
+.noUi-horizontal .noUi-handle {
+	top: -4px;
+}
+
+.campaign-goal {
+	display: flex;
+	flex-wrap: wrap;
+
+	li {
+		width: 50%;
+		margin-bottom: 8px;
+		font-size: 18px;
+		font-weight: 500;
+		color: var(--secondary);
+	}
+}
+
+@media only screen and (min-width: 75rem) and (max-width: 100rem) {
+	.media-space {
+		width: 100%;
+	}
+}
+
+@include respond ('tab-land') {
+	.media-space {
+		width: 50%;
+	}
+}
+@include respond ('phone'){
+	.media-space {
+		width: 100%;
+	}
+}

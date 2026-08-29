@@ -1,0 +1,175 @@
+.df-page-header{
+    padding-top:.5rem;
+    margin-bottom:1.75rem;
+}
+
+.df-page-header .btn{
+    white-space:nowrap;
+}
+
+.df-stat-col{
+    display:flex;
+}
+
+.df-stat-card{
+    min-height:130px;
+    border:0;
+    color:#fff;
+    overflow:hidden;
+    position:relative;
+    width:100%;
+    box-shadow:0 10px 24px rgba(15, 23, 42, .08);
+}
+
+.df-stat-card .card-body{
+    min-height:130px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:1.25rem 1.5rem;
+}
+
+.df-stat-card h2,
+.df-stat-card h3,
+.df-stat-card h4{
+    color:#fff;
+}
+
+.df-stat-icon{
+    font-size:58px;
+    opacity:.25;
+}
+
+.df-stat-green{
+    background:linear-gradient(135deg,#198754,#42ba96);
+}
+
+.df-stat-orange{
+    background:linear-gradient(135deg,#ff9800,#ffb74d);
+}
+
+.df-stat-blue{
+    background:linear-gradient(135deg,#0d6efd,#4dabff);
+}
+
+.df-stat-purple{
+    background:linear-gradient(135deg,#6f42c1,#9b6dff);
+}
+
+.df-stat-red{
+    background:linear-gradient(135deg,#dc3545,#ff6b81);
+}
+
+.payment-toolbar-link{
+    min-width:240px;
+}
+
+.payment-toolbar-action{
+    min-height:48px;
+}
+
+.content-body .card-header.d-flex{
+    gap:.75rem;
+}
+
+.content-body .card-body > .table-responsive > .table{
+    margin-bottom:0;
+}
+
+.content-body .card-body.p-0 > .table-responsive{
+    padding:1.25rem 1.25rem 0;
+}
+
+.content-body .card-body.p-0 > .table-responsive > .table{
+    margin-bottom:0;
+}
+
+.df-stats-row{
+    margin-top:.5rem;
+    margin-bottom:.25rem;
+}
+
+.df-attendance-line{
+    display:block;
+    min-width:72px;
+    min-height:20px;
+    border-bottom:1px solid #cbd5e1;
+}
+
+.df-attendance-line-wide{
+    min-width:140px;
+}
+
+.df-attendance-check{
+    display:inline-block;
+    width:18px;
+    height:18px;
+    border:1.5px solid #94a3b8;
+    border-radius:3px;
+}
+
+/*
+ * Mobil fejléc javítás:
+ * - a logó a desktop méretét inline style helyett innen kapja, hogy a téma
+ *   sajat @media (max-width:767px) szabályai (a .nav-header összeszűkítése,
+ *   a .brand-logo középre igazítása) felül tudják írni, és a logó ne csússzon
+ *   bele a hamburger menübe keskeny nézetben.
+ * - a fiók/kilépés gombhoz (.header-profile) egy mindig látható ikon került,
+ *   mert a téma 575px alatt elrejti a .header-info szöveget (név/szerepkör),
+ *   és eredetileg semmi más nem volt a gombban, ami látszódott volna.
+ */
+.nav-header .df-brand-logo{
+    margin-left:50px;
+    overflow:hidden;
+}
+
+.nav-header .df-brand-logo-img{
+    width:120px;
+    max-width:100%;
+    height:auto;
+    max-height:calc(var(--dz-header-height, 5rem) - 1rem);
+    object-fit:contain;
+}
+
+@media (max-width:767px){
+    /*
+     * !important a mobil nézetben: a téma saját, attribútum-szelektoros
+     * (pl. [data-sidebar-style=...]) szabályai nagyobb specifikussággal
+     * felülírhatják a sima .nav-header szélesség/igazítás szabályokat, ezért
+     * itt direktben kényszerítjük ki a keskeny, középre igazított dobozt.
+     */
+    .nav-header{
+        width:6rem !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+    }
+
+    .nav-header .df-brand-logo{
+        margin:0 !important;
+        padding:0 !important;
+        width:auto !important;
+        justify-content:center !important;
+    }
+
+    .nav-header .df-brand-logo-img{
+        width:3.25rem;
+        height:3.25rem;
+    }
+
+    /* a hamburger gombot (.nav-control) is arrébb toljuk jobbra, hogy nagyobb
+       hely maradjon a megnövelt logónak */
+    .nav-header .nav-control{
+        right:-4.5rem !important;
+    }
+}
+
+.header-profile-icon{
+    margin-right:.5rem;
+}
+
+@media (max-width:575px){
+    .header-profile-icon{
+        margin-right:0;
+    }
+}
