@@ -1,3 +1,13 @@
+@php
+	$user = auth()->user();
+	$context = app(\App\Support\AdminInstitutionContext::class);
+	$role = $user?->contextRole() ?? $user?->role;
+	$showInstitutionContext = in_array($role, ['institution_admin', 'institution_secretary', 'kitchen', 'municipality'], true);
+	$institution = $showInstitutionContext ? $context->currentInstitution($user) : null;
+	$availableInstitutions = $showInstitutionContext ? $context->availableInstitutions($user) : collect();
+	$hasMultipleInstitutions = $availableInstitutions->count() > 1;
+@endphp
+
 <div class="header">
 	<div class="header-content">
 		<nav class="navbar navbar-expand">
@@ -6,6 +16,41 @@
 					<div class="dashboard_bar">
 						Kezelőfelület
 					</div>
+					@if($institution)
+						<div class="df-header-institution-switcher" title="{{ $institution->name }}">
+							@if($hasMultipleInstitutions)
+								<form action="{{ route('dashboard.institution.context.update') }}" method="POST" class="df-header-institution-form">
+									@csrf
+									<label for="header-institution-switcher" class="visually-hidden">Aktív intézmény</label>
+									<div class="df-header-institution-control">
+										<span class="df-header-institution-icon" aria-hidden="true">
+											<i class="fa-solid fa-school"></i>
+										</span>
+										<select
+											id="header-institution-switcher"
+											name="institution_id"
+											class="df-header-institution-select"
+											title="{{ $institution->name }}"
+											onchange="this.form.submit()"
+										>
+											@foreach($availableInstitutions as $switchableInstitution)
+												<option value="{{ $switchableInstitution->id }}" @selected((int) $switchableInstitution->id === (int) $institution->id)>
+													{{ $switchableInstitution->name }}
+												</option>
+											@endforeach
+										</select>
+									</div>
+								</form>
+							@else
+								<div class="df-header-institution-control df-header-institution-control--static">
+									<span class="df-header-institution-icon" aria-hidden="true">
+										<i class="fa-solid fa-school"></i>
+									</span>
+									<span class="df-header-institution-name">{{ $institution->name }}</span>
+								</div>
+							@endif
+						</div>
+					@endif
 				</div>
 				<ul class="navbar-nav header-right">
 					<li class="nav-item dropdown notification_dropdown">

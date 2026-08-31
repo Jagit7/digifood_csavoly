@@ -173,3 +173,118 @@
         margin-right:0;
     }
 }
+
+.header-left{
+    gap:1rem;
+    min-width:0;
+}
+
+.df-header-institution-switcher{
+    flex:0 1 auto;
+    min-width:0;
+    width:clamp(280px, 34vw, 620px);
+    max-width:620px;
+    background:transparent;
+    border:0;
+    box-shadow:none;
+}
+
+.df-header-institution-form{
+    margin:0;
+    width:100%;
+}
+
+.df-header-institution-control{
+    display:inline-flex;
+    align-items:center;
+    width:100%;
+    height:42px;
+    background:transparent;
+    border:0;
+    border-radius:0;
+    box-shadow:none;
+    cursor:pointer;
+}
+
+.df-header-institution-icon{
+    flex:0 0 auto;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:40px;
+    height:40px;
+    color:#d94a16;
+    font-size:15px;
+}
+
+.df-header-institution-select,
+.df-header-institution-name{
+    flex:1 1 auto;
+    min-width:0;
+    color:#102a3a;
+    font-size:14px;
+    font-weight:500;
+}
+
+.df-header-institution-select{
+    height:40px;
+    border:0 !important;
+    border-radius:0 !important;
+    box-shadow:none !important;
+    outline:none !important;
+    background:transparent;
+    padding:0 36px 0 8px;
+    cursor:pointer;
+    white-space:nowrap;
+    width:100%;
+}
+
+.df-header-institution-select:focus{
+    outline:none;
+}
+
+.df-header-institution-name{
+    display:block;
+    padding:0 16px 0 8px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    line-height:40px;
+}
+
+.df-header-institution-select option{
+    color:#102a3a;
+    background-color:#ffffff;
+}
+
+[data-theme-version="dark"] .df-header-institution-select,
+[data-theme-version="dark"] .df-header-institution-name{
+    color:#f8fafc;
+}
+
+[data-theme-version="dark"] .df-header-institution-select option{
+    color:#f8fafc;
+    background-color:#182835;
+}
+
+@media (max-width:1199px){
+    .df-header-institution-switcher{
+        width:clamp(280px, 30vw, 420px);
+        max-width:420px;
+    }
+}
+
+@media (max-width:767px){
+    .header-left{
+        gap:.75rem;
+    }
+
+    .df-header-institution-switcher{
+        width:min(280px, calc(100vw - 10rem));
+        max-width:280px;
+    }
+
+    .df-header-institution-control{
+        height:40px;
+    }
+}

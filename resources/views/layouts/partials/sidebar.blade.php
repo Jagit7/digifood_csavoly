@@ -67,46 +67,7 @@
     <div class="deznav-scroll">
 
         {{-- INTÉZMÉNY FEJLÉC --}}
-        @if($institution)
-            <div class="px-3 pt-4 pb-3 border-bottom border-light border-opacity-10" style="margin-bottom:30px;">
-                <div class="d-flex align-items-center">
-                    <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;margin-right:12px;">
-                        <i class="fa-solid fa-building"></i>
-                    </div>
-
-                    <div class="flex-grow-1">
-                        <div style="color:#fff;font-weight:600;font-size:14px;line-height:1.3;">
-                            {{ $institution->name }}
-                        </div>
-                        <div style="color:rgba(255,255,255,.65);font-size:12px;margin-top:2px;">
-                            {{ $roleLabels[$role] ?? 'Intézményi felhasználó' }} · {{ $institution->institution_code }}
-                        </div>
-                    </div>
-                </div>
-
-                @if($availableInstitutions->count() > 1)
-                    <form action="{{ route('dashboard.institution.context.update') }}" method="POST" class="mt-3">
-                        @csrf
-                        <label for="sidebar-institution-switcher" class="form-label mb-1" style="color:rgba(255,255,255,.72);font-size:11px;">
-                            Aktív intézmény
-                        </label>
-                        <select
-                            id="sidebar-institution-switcher"
-                            name="institution_id"
-                            class="form-control form-control-sm"
-                            onchange="this.form.submit()"
-                            style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.16);color:#fff;"
-                        >
-                            @foreach($availableInstitutions as $switchableInstitution)
-                                <option value="{{ $switchableInstitution->id }}" @selected((int) $switchableInstitution->id === (int) $institution->id) style="color:#12344a;">
-                                    {{ $switchableInstitution->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                    </form>
-                @endif
-            </div>
-        @else
+        @if(!$institution)
             <div class="px-3 pt-4 pb-3 border-bottom border-light border-opacity-10" style="margin-bottom:30px;">
                 <div class="d-flex align-items-center">
                     <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;margin-right:12px;">
