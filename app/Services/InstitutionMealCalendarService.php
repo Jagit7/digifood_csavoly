@@ -229,7 +229,57 @@ class InstitutionMealCalendarService
             ];
         });
 
-        return ['summary' => $summary, 'roster' => $roster, 'employee_roster' => $employeeRoster];
+        return [
+            'summary' => $summary,
+            'roster' => $roster,
+            'employee_roster' => $employeeRoster,
+            'cancelled_roster' => $this->cancelledRoster($institutionId, $day),
+        ];
+    }
+
+    public function cancelledRoster(int $institutionId, CarbonInterface $date): Collection
+    {
+        $day = CarbonImmutable::instance($date)->startOfDay();
+        $cancelledChildren = $this->headcount
+            ->forDate($institutionId, $day)
+            ['rows']
+            ->where('status', DailyMealHeadcountService::STATUS_CANCELLED)
+            ->map(fn (array $row) => $row['child'])
+            ->filter(fn ($child) => $child instanceof Child)
+            ->map(fn (Child $child) => [
+                'type' => 'child',
+                'name' => $child->name,
+                'group_name' => $child->group_name,
+                'group_label' => filled($child->group_name) ? $child->group_name : 'Csoport nélkül',
+                'sort_group' => filled($child->group_name) ? $child->group_name : 'zzz__csoport_nelkul',
+            ]);
+
+        $cancelledEmployees = $this->employeeHeadcount
+            ->forDate($institutionId, $day)
+            ['rows']
+            ->where('status', EmployeeDailyMealHeadcountService::STATUS_CANCELLED)
+            ->map(fn (array $row) => $row['employee'])
+            ->filter(fn ($employee) => $employee instanceof InstitutionEmployee)
+            ->map(fn (InstitutionEmployee $employee) => [
+                'type' => 'employee',
+                'name' => $employee->name,
+                'group_name' => null,
+                'group_label' => 'Dolgozó',
+                'sort_group' => 'zzzz__dolgozo',
+            ]);
+
+        return $cancelledChildren
+            ->concat($cancelledEmployees)
+            ->sortBy([
+                ['sort_group', 'asc'],
+                ['name', 'asc'],
+            ])
+            ->values()
+            ->map(function (array $row) {
+                unset($row['sort_group']);
+
+                return $row;
+            });
     }
 
     private function children(int $institutionId): Builder

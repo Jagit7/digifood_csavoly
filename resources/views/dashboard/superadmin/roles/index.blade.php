@@ -116,10 +116,23 @@
                                         </thead>
                                         <tbody>
                                         @foreach($role['users'] as $user)
+                                            @php
+                                                $institutionNames = $user->institutions
+                                                    ->pluck('name')
+                                                    ->filter()
+                                                    ->unique()
+                                                    ->values();
+                                            @endphp
                                             <tr>
                                                 <td>{{ $user->name ?: 'Nincs megadva' }}</td>
                                                 <td>{{ $user->email }}</td>
-                                                <td>{{ $user->institution?->name ?: 'Nem intézményhez kötött' }}</td>
+                                                <td>
+                                                    @if($institutionNames->isNotEmpty())
+                                                        {{ $institutionNames->implode(', ') }}
+                                                    @else
+                                                        {{ $user->institution?->name ?: 'Nem intézményhez kötött' }}
+                                                    @endif
+                                                </td>
                                                 <td>
                                                     @if($user->is_active)
                                                         <span class="badge badge-success light">Aktív</span>

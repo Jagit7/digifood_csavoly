@@ -89,30 +89,30 @@ class AuthController extends Controller
 
             switch ($user->role) {
                 case User::ROLE_SUPER_ADMIN:
-                    return redirect()->route('dashboard.superadmin');
+                    return redirect()->to(route('dashboard.superadmin', [], false));
 
                 case User::ROLE_INSTITUTION_ADMIN:
                 case User::ROLE_INSTITUTION_SECRETARY:
                 case User::ROLE_KITCHEN:
                 case User::ROLE_MUNICIPALITY:
-                    return redirect()->route('dashboard.institution.home');
+                    return redirect()->to(route('dashboard.institution.home', [], false));
 
                 case User::ROLE_MEAL_KIOSK:
                     $this->bindKioskDevice($request, $user);
 
-                    return redirect()->route('kiosk.show');
+                    return redirect()->to(route('kiosk.show', [], false));
 
                 case User::ROLE_PARENT:
-                    return redirect()->route('parent.dashboard');
+                    return redirect()->to(route('parent.dashboard', [], false));
 
                 case User::ROLE_EMPLOYEE:
-                    return redirect()->route('employee.dashboard');
+                    return redirect()->to(route('employee.dashboard', [], false));
 
                 default:
                     Auth::logout();
 
                     return redirect()
-                        ->route('auth.login')
+                        ->to(route('auth.login', [], false))
                         ->withErrors(['email' => 'Nincs jogosultságod a belépéshez.']);
             }
         }
@@ -131,7 +131,7 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('auth.login');
+        return redirect()->to(route('auth.login', [], false));
     }
 
     public function showRegisterForm()
@@ -166,7 +166,7 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
-        return redirect()->route('parent.dashboard');
+        return redirect()->to(route('parent.dashboard', [], false));
     }
 
     public function showForgotForm()

@@ -201,7 +201,7 @@ class InstitutionController extends Controller
     {
         return [
             // alapadatok
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:191'],
             'type' => ['nullable', 'string', 'in:ovoda,iskola,bolcsode'],
 
             // intézmény címe (strukturált)
@@ -221,16 +221,16 @@ class InstitutionController extends Controller
 
             // kapcsolattartó
             'contact_name' => ['nullable', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'email' => ['nullable', 'email', 'max:191'],
             'phone' => ['nullable', 'string', 'max:50'],
 
             // számlázás
-            'billing_name' => ['nullable', 'string', 'max:255'],
+            'billing_name' => ['nullable', 'string', 'max:191'],
             'billing_tax_number' => ['nullable', 'string', 'max:50'],
 
             'billing_zip' => ['nullable', 'string', 'max:10'],
             'billing_city' => ['nullable', 'string', 'max:100'],
-            'billing_address' => ['nullable', 'string', 'max:255'],
+            'billing_address' => ['nullable', 'string', 'max:191'],
 
             'billing_payment_due_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             'billing_partner_id' => ['nullable', 'integer', 'exists:billing_partners,id'],

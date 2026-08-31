@@ -17,8 +17,7 @@ class InstitutionCampaignMail extends Mailable
 
     public function __construct(
         public readonly EmailCampaignRecipient $recipient
-    ) {
-    }
+    ) {}
 
     public function envelope(): Envelope
     {

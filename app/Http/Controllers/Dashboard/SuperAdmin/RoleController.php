@@ -24,7 +24,7 @@ class RoleController extends Controller
             ->keyBy('role');
 
         $sampleUsers = User::query()
-            ->with('institution:id,name')
+            ->with(['institution:id,name', 'institutions:id,name'])
             ->whereIn('role', $roles)
             ->orderBy('name')
             ->orderBy('email')
@@ -58,6 +58,7 @@ class RoleController extends Controller
             'institution_roles' => User::query()
                 ->whereIn('role', [
                     User::ROLE_INSTITUTION_ADMIN,
+                    User::ROLE_INSTITUTION_SECRETARY,
                     User::ROLE_KITCHEN,
                     User::ROLE_MUNICIPALITY,
                     User::ROLE_MEAL_KIOSK,
@@ -90,6 +91,14 @@ class RoleController extends Controller
                 'institution_bound' => true,
                 'access_level' => 'Intézményi',
                 'areas' => ['Napi létszám', 'Lemondások', 'Étlapok', 'Felhasználók', 'Pénzügyek', 'Riportok', 'Intézmény'],
+            ],
+            [
+                'key' => User::ROLE_INSTITUTION_SECRETARY,
+                'label' => 'Intézményi titkár',
+                'description' => 'Intézményi operatív hozzáférés pénzügyi jogosultságok nélkül az intézményi dashboardon.',
+                'institution_bound' => true,
+                'access_level' => 'Intézményi',
+                'areas' => ['Napi létszám', 'Lemondások', 'Gyermekek', 'Szülők', 'Riportok', 'Intézmény'],
             ],
             [
                 'key' => User::ROLE_KITCHEN,

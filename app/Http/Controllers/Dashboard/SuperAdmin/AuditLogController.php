@@ -20,6 +20,7 @@ class AuditLogController extends Controller
             AuditLog::ACTION_INSTITUTION_CREATED => 'Intézmény létrehozása',
             AuditLog::ACTION_INSTITUTION_UPDATED => 'Intézmény módosítása',
             AuditLog::ACTION_PARTNER_BILLING_STATUS_CHANGED => 'Partneri havi számlázási státusz módosítása',
+            AuditLog::ACTION_INSTITUTION_ADMIN_INVITATION_RESENT => 'Intézményi admin meghívó újraküldése',
         ];
 
         $auditLogs = AuditLog::query()

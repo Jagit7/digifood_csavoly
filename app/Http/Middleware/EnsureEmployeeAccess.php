@@ -16,7 +16,7 @@ class EnsureEmployeeAccess
         $user = Auth::user();
 
         if (! $user) {
-            return redirect()->route('employee.login');
+            return redirect()->to(route('employee.login', [], false));
         }
 
         if ($user->role !== User::ROLE_EMPLOYEE) {
@@ -42,7 +42,7 @@ class EnsureEmployeeAccess
         $request->session()->regenerateToken();
 
         return redirect()
-            ->route('employee.login')
+            ->to(route('employee.login', [], false))
             ->withErrors(['email' => $message]);
     }
 }

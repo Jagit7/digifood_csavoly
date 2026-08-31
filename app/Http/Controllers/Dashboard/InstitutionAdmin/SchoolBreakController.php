@@ -8,6 +8,7 @@ use App\Models\SchoolBreak;
 use App\Services\InstitutionCalendarService;
 use App\Services\InstitutionMealCalendarService;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -281,6 +282,34 @@ class SchoolBreakController extends Controller
             'summary' => $data['summary'],
             'roster' => $roster,
             'hasActiveAbMenuPlan' => $hasActiveAbMenuPlan,
+        ]);
+    }
+
+    public function calendarCancelled(string $date): JsonResponse
+    {
+        Validator::make(['date' => $date], [
+            'date' => ['required', 'date_format:Y-m-d'],
+        ])->validate();
+
+        $institution = $this->currentAdminInstitution();
+        $selectedDate = CarbonImmutable::createFromFormat(
+            'Y-m-d',
+            $date,
+            $this->calendarService->timezone()
+        )->startOfDay();
+        $data = $this->mealCalendar->day($institution->id, $selectedDate);
+        $cancelledRoster = $data['cancelled_roster'];
+
+        return response()->json([
+            'date' => $selectedDate->toDateString(),
+            'date_label' => $selectedDate->format('Y.m.d.'),
+            'cancelled_count' => $cancelledRoster->count(),
+            'items' => $cancelledRoster->map(fn (array $row) => [
+                'type' => $row['type'],
+                'name' => $row['name'],
+                'group_name' => $row['group_name'],
+                'group_label' => $row['group_label'],
+            ])->values(),
         ]);
     }
 

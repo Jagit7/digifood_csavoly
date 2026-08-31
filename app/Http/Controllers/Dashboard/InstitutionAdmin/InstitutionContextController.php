@@ -28,6 +28,8 @@ class InstitutionContextController extends Controller
             abort(403, 'A kiválasztott intézmény nem érhető el ezzel a fiókkal.');
         }
 
-        return redirect()->back()->with('success', 'Aktív intézmény frissítve.');
+        return redirect()
+            ->route('dashboard.institution.home')
+            ->with('success', 'Aktív intézmény frissítve.');
     }
 }

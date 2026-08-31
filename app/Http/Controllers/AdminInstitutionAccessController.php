@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Mail\InstitutionAdminInviteMail;
+use App\Models\AuditLog;
 use App\Models\Institution;
 use App\Models\InstitutionAdminInvitation;
 use App\Models\User;
 use App\Support\AdminInstitutionContext;
+use App\Support\AuditLogger;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -36,8 +40,8 @@ class AdminInstitutionAccessController extends Controller
         $institutions = Institution::query()
             ->with([
                 'users' => function ($q) use ($role) {
-                    $q->when($role, fn ($qq) => $qq->where('role', $role))
-                        ->whereIn('role', $this->manageableRoles)
+                    $q->whereIn('users.role', $this->manageableRoles)
+                        ->when($role, fn ($qq) => $qq->wherePivot('scope_role', $role))
                         ->orderBy('name');
                 },
                 'adminInvitations' => function ($q) use ($role) {
@@ -158,46 +162,138 @@ class AdminInstitutionAccessController extends Controller
             'role' => ['required', 'in:institution_admin,institution_secretary,kitchen,municipality'],
         ]);
 
-        $plainToken = Str::random(64);
+        [$invitation, $url, $attachedExistingUser] = DB::transaction(function () use ($validated) {
+            $now = now();
+            $plainToken = Str::random(64);
 
-        $invitation = InstitutionAdminInvitation::create([
-            'institution_id' => $validated['institution_id'],
-            'invited_by' => auth()->id(),
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'role' => $validated['role'],
-            'token_hash' => hash('sha256', $plainToken),
-            'expires_at' => now()->addDay(),
-        ]);
+            $invitation = InstitutionAdminInvitation::query()->create([
+                'institution_id' => $validated['institution_id'],
+                'invited_by' => auth()->id(),
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'role' => $validated['role'],
+                'token_hash' => hash('sha256', $plainToken),
+                'expires_at' => $now->copy()->addHours(InstitutionAdminInvitation::EXPIRES_IN_HOURS),
+            ]);
 
-        $url = route('institution-invite.accept', ['token' => $plainToken]);
+            $existingUser = User::query()
+                ->where('email', $validated['email'])
+                ->lockForUpdate()
+                ->first();
 
-        // A szülői/dolgozói aktiváló e-mailekhez hasonló felépítésű
-        // meghívó e-mail is kimegy a megadott címre, hogy a superadminnak
-        // ne kelljen a linket kézzel (pl. saját levelezőjéből) továbbküldenie.
-        Mail::to($validated['email'])->send(new InstitutionAdminInviteMail([
-            'recipientName' => $validated['name'],
-            'institutionName' => $invitation->institution->name,
-            'roleLabel' => $this->roleLabels()[$validated['role']] ?? $validated['role'],
-            'activationUrl' => $url,
-            'expiresAt' => $invitation->expires_at,
-        ]));
+            if (! $this->canAttachInstitutionImmediately($existingUser)) {
+                return [$invitation->fresh('institution'), $this->sendInvitationEmail($invitation->fresh('institution'), $plainToken), false];
+            }
 
-        return redirect()
+            $existingUser->institutions()->syncWithoutDetaching([
+                $validated['institution_id'] => ['scope_role' => $validated['role']],
+            ]);
+
+            $existingUser->forceFill([
+                'accepted_invitation_at' => $existingUser->accepted_invitation_at ?? $now,
+                'email_verified_at' => $existingUser->email_verified_at ?? $now,
+                'is_active' => true,
+            ])->save();
+
+            $invitation->forceFill([
+                'accepted_at' => $now,
+            ])->save();
+
+            return [$invitation->fresh('institution'), null, true];
+        });
+
+        $redirect = redirect()
             ->route('dashboard.admin-access.index')
-            ->with('success', 'Meghívó létrehozva és e-mailben elküldve.')
+            ->with(
+                'success',
+                $attachedExistingUser
+                    ? 'A meglévő, aktív felhasználó azonnal hozzá lett rendelve az intézményhez. Nem küldtünk új aktiváló meghívót.'
+                    : 'Meghívó létrehozva és e-mailben elküldve.'
+            );
+
+        if ($url !== null) {
+            $redirect->with('invite_url', $url);
+        }
+
+        return $redirect;
+    }
+
+    public function resendInvite(InstitutionAdminInvitation $invitation)
+    {
+        if ($invitation->isAccepted()) {
+            return back()->withErrors([
+                'invitation' => 'Az elfogadott meghívó nem küldhető újra.',
+            ]);
+        }
+
+        if (! $invitation->isExpired()) {
+            return back()->withErrors([
+                'invitation' => 'Csak lejárt, még el nem fogadott meghívó küldhető újra.',
+            ]);
+        }
+
+        $plainToken = Str::random(64);
+        $now = now();
+
+        $invitation = DB::transaction(function () use ($invitation, $plainToken, $now) {
+            $lockedInvitation = InstitutionAdminInvitation::query()
+                ->with('institution')
+                ->lockForUpdate()
+                ->findOrFail($invitation->id);
+
+            if ($lockedInvitation->isAccepted()) {
+                abort(422, 'Az elfogadott meghívó nem küldhető újra.');
+            }
+
+            if (! $lockedInvitation->isExpired()) {
+                abort(422, 'Csak lejárt, még el nem fogadott meghívó küldhető újra.');
+            }
+
+            $previousExpiresAt = $lockedInvitation->expires_at;
+
+            $lockedInvitation->forceFill([
+                'invited_by' => auth()->id(),
+                'token_hash' => hash('sha256', $plainToken),
+                'expires_at' => $now->copy()->addHours(InstitutionAdminInvitation::EXPIRES_IN_HOURS),
+                'accepted_at' => null,
+            ])->save();
+
+            AuditLogger::log(
+                action: AuditLog::ACTION_INSTITUTION_ADMIN_INVITATION_RESENT,
+                description: 'Intézményi admin meghívó újraküldve',
+                subject: $lockedInvitation,
+                institutionId: $lockedInvitation->institution_id,
+                oldValues: [
+                    'invitation_id' => $lockedInvitation->id,
+                    'institution_id' => $lockedInvitation->institution_id,
+                    'email' => $lockedInvitation->email,
+                    'expires_at' => $previousExpiresAt?->toDateTimeString(),
+                ],
+                newValues: [
+                    'invitation_id' => $lockedInvitation->id,
+                    'institution_id' => $lockedInvitation->institution_id,
+                    'email' => $lockedInvitation->email,
+                    'resent_by_user_id' => auth()->id(),
+                    'expires_at' => $lockedInvitation->expires_at?->toDateTimeString(),
+                ]
+            );
+
+            return $lockedInvitation->fresh('institution');
+        });
+
+        $url = $this->sendInvitationEmail($invitation, $plainToken);
+
+        return back()
+            ->with('success', 'A lejárt meghívó újraküldése sikeres volt.')
             ->with('invite_url', $url);
     }
 
     public function acceptInvite(string $token)
     {
-        $invitation = InstitutionAdminInvitation::query()
-            ->where('token_hash', hash('sha256', $token))
-            ->whereNull('accepted_at')
-            ->firstOrFail();
+        $invitation = $this->findInvitationByToken($token);
 
-        if ($invitation->expires_at->isPast()) {
-            abort(403, 'A meghívó link lejárt.');
+        if ($response = $this->invitationStateResponse($invitation)) {
+            return $response;
         }
 
         return view('auth.accept_institution_invite', compact('token', 'invitation'));
@@ -205,69 +301,77 @@ class AdminInstitutionAccessController extends Controller
 
     public function completeInvite(Request $request, string $token)
     {
-        $invitation = InstitutionAdminInvitation::query()
-            ->where('token_hash', hash('sha256', $token))
-            ->whereNull('accepted_at')
-            ->firstOrFail();
+        $validated = $request->validate([
+            'password' => ['nullable', 'confirmed', 'min:8'],
+        ]);
 
-        if ($invitation->expires_at->isPast()) {
-            abort(403, 'A meghívó link lejárt.');
-        }
+        [$user, $invitation] = DB::transaction(function () use ($token, $validated) {
+            $invitation = $this->findInvitationByToken($token, lockForUpdate: true);
 
-        $now = now();
-
-        $existingUser = User::where('email', $invitation->email)->first();
-
-        if ($existingUser !== null) {
-            // Ha ehhez az e-mail címhez már tartozik fiók, a meghívó linkkel NEM
-            // írjuk felül a jelszavát/szerepkörét - ez fiók-átvételi kockázat
-            // lenne. Csak a már bejelentkezett, saját fiókjához tartozó
-            // felhasználó fogadhatja el így a meghívást (pl. új intézményi
-            // hozzáférés hozzáadása egy meglévő fiókhoz).
-            if (! auth()->check() || auth()->user()->email !== $invitation->email) {
-                abort(403, 'Ehhez az e-mail címhez már tartozik fiók a rendszerben. Jelentkezz be a meglévő fiókoddal, majd vedd fel a kapcsolatot a rendszergazdával az intézményi hozzáférés beállításához.');
+            if ($response = $this->invitationStateResponse($invitation)) {
+                return [$response, null];
             }
 
-            $user = $existingUser;
+            $now = now();
+            $existingUser = User::query()
+                ->where('email', $invitation->email)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingUser !== null) {
+                if ($this->canAttachInstitutionImmediately($existingUser)) {
+                    $existingUser->forceFill([
+                        'accepted_invitation_at' => $existingUser->accepted_invitation_at ?? $now,
+                        'email_verified_at' => $existingUser->email_verified_at ?? $now,
+                        'is_active' => true,
+                    ])->save();
+
+                    $user = $existingUser;
+                } elseif (! auth()->check() || auth()->user()->email !== $invitation->email) {
+                    abort(403, 'Ehhez az e-mail címhez már tartozik fiók a rendszerben. Jelentkezz be a meglévő fiókoddal, majd vedd fel a kapcsolatot a rendszergazdával az intézményi hozzáférés beállításához.');
+                } else {
+                    $user = $existingUser;
+                }
+            } else {
+                if (blank($validated['password'] ?? null)) {
+                    abort(422, 'A jelszó megadása kötelező.');
+                }
+
+                $user = User::forceCreate([
+                    'email' => $invitation->email,
+                    'name' => $invitation->name,
+                    'role' => $invitation->role,
+                    'password' => Hash::make($validated['password']),
+                    'is_active' => true,
+                    'accepted_invitation_at' => $now,
+                    'email_verified_at' => $now,
+                ]);
+            }
 
             $user->institutions()->syncWithoutDetaching([
                 $invitation->institution_id => ['scope_role' => $invitation->role],
             ]);
-        } else {
-            $validated = $request->validate([
-                'password' => ['required', 'confirmed', 'min:8'],
-            ]);
 
-            // forceCreate(): ld. fenti megjegyzés - "role"/"is_active" nem
-            // fillable a User modellen.
-            $user = User::forceCreate([
-                'email' => $invitation->email,
-                'name' => $invitation->name,
-                'role' => $invitation->role,
-                'password' => Hash::make($validated['password']),
-                'is_active' => true,
-                'accepted_invitation_at' => $now,
-                'email_verified_at' => $now,
-            ]);
+            $invitation->forceFill([
+                'accepted_at' => $now,
+            ])->save();
 
-            $user->institutions()->syncWithoutDetaching([
-                $invitation->institution_id => ['scope_role' => $invitation->role],
-            ]);
+            return [$user, $invitation->fresh('institution')];
+        });
+
+        if ($user instanceof Response) {
+            return $user;
         }
-
-        $invitation->update([
-            'accepted_at' => $now,
-        ]);
 
         auth()->login($user);
         $this->institutionContext->switchToInstitution($user, (int) $invitation->institution_id);
 
         if ($user->role === 'super_admin') {
-            return redirect()->route('dashboard.superadmin')
+            return redirect()->to(route('dashboard.superadmin', [], false))
                 ->with('success', 'Fiók létrehozva, beléptél.');
         }
 
-        return redirect()->route('dashboard.institution.home')
+        return redirect()->to(route('dashboard.institution.home', [], false))
             ->with('success', 'Fiók létrehozva, beléptél.');
     }
 
@@ -300,5 +404,69 @@ class AdminInstitutionAccessController extends Controller
             User::ROLE_KITCHEN => 'Konyha',
             User::ROLE_MUNICIPALITY => 'Önkormányzat',
         ];
+    }
+
+    private function findInvitationByToken(string $token, bool $lockForUpdate = false): InstitutionAdminInvitation
+    {
+        $query = InstitutionAdminInvitation::query()
+            ->with('institution')
+            ->where('token_hash', hash('sha256', $token));
+
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        return $query->firstOrFail();
+    }
+
+    private function invitationStateResponse(InstitutionAdminInvitation $invitation): ?Response
+    {
+        if ($invitation->isAccepted()) {
+            return response()->view('auth.institution_invitation_state', [
+                'title' => 'Ez a meghívó már fel lett használva.',
+                'lead' => 'A meghívó egyszer használható fel.',
+                'message' => 'Ha továbbra is szüksége van hozzáférésre, kérjük, vegye fel a kapcsolatot az intézménnyel vagy a Digifood adminisztrátorával.',
+            ], 410);
+        }
+
+        if ($invitation->isExpired()) {
+            return response()->view('auth.institution_invitation_state', [
+                'title' => 'Ez a meghívó lejárt.',
+                'lead' => 'A meghívó 24 órán keresztül használható.',
+                'message' => 'Kérjük, kérjen új meghívót az intézmény vagy a Digifood adminisztrátorától.',
+            ], 410);
+        }
+
+        return null;
+    }
+
+    private function sendInvitationEmail(InstitutionAdminInvitation $invitation, string $plainToken): string
+    {
+        $url = route('institution-invite.accept', ['token' => $plainToken]);
+
+        Mail::to($invitation->email)->send(new InstitutionAdminInviteMail([
+            'recipientName' => $invitation->name,
+            'institutionName' => $invitation->institution->name,
+            'roleLabel' => $this->roleLabels()[$invitation->role] ?? $invitation->role,
+            'activationUrl' => $url,
+            'expiresAt' => $invitation->expires_at,
+        ]));
+
+        return $url;
+    }
+
+    private function canAttachInstitutionImmediately(?User $user): bool
+    {
+        if ($user === null) {
+            return false;
+        }
+
+        if (! in_array($user->role, $this->manageableRoles, true)) {
+            return false;
+        }
+
+        return $user->is_active
+            && filled($user->password)
+            && $user->accepted_invitation_at !== null;
     }
 }

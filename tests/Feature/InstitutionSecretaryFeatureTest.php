@@ -133,6 +133,8 @@ class InstitutionSecretaryFeatureTest extends TestCase
             'role' => User::ROLE_INSTITUTION_SECRETARY,
             'institution_id' => $firstInstitution->id,
             'is_active' => true,
+            'accepted_invitation_at' => now()->subDay(),
+            'email_verified_at' => now()->subDay(),
         ]);
 
         DB::table('institution_user')->insert([
@@ -470,12 +472,11 @@ class InstitutionSecretaryFeatureTest extends TestCase
 
         $this->actingAs($user);
 
-        $switchResponse = $this->from(route('dashboard.institution.children.index'))
-            ->post(route('dashboard.institution.context.update'), [
-                'institution_id' => $secondInstitution->id,
-            ]);
+        $switchResponse = $this->post(route('dashboard.institution.context.update'), [
+            'institution_id' => $secondInstitution->id,
+        ]);
 
-        $switchResponse->assertRedirect(route('dashboard.institution.children.index'));
+        $switchResponse->assertRedirect(route('dashboard.institution.home'));
         $switchResponse->assertSessionHas('dashboard.selected_institution_id', $secondInstitution->id);
         $switchResponse->assertSessionHas('dashboard.selected_institution_user_id', $user->id);
 
@@ -488,7 +489,7 @@ class InstitutionSecretaryFeatureTest extends TestCase
 
         $this->post(route('dashboard.institution.context.update'), [
             'institution_id' => $firstInstitution->id,
-        ])->assertRedirect();
+        ])->assertRedirect(route('dashboard.institution.home'));
 
         $this->get(route('dashboard.institution.children.index'))
             ->assertOk()

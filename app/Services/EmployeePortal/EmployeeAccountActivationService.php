@@ -123,7 +123,7 @@ class EmployeeAccountActivationService
         if ($activeEmployeeUser !== null) {
             return [null, [
                 'status' => 'already_active_employee',
-                'login_url' => route('employee.login'),
+                'login_url' => route('employee.login', [], false),
             ]];
         }
 

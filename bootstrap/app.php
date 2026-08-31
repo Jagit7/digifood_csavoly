@@ -21,14 +21,28 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->redirectGuestsTo(function ($request) {
             if ($request->is('szulo') || $request->is('szulo/*')) {
-                return route('parent.login');
+                return route('parent.login', [], false);
             }
 
             if ($request->is('dolgozo') || $request->is('dolgozo/*')) {
-                return route('employee.login');
+                return route('employee.login', [], false);
             }
 
-            return route('auth.login');
+            return route('auth.login', [], false);
+        });
+
+        $middleware->redirectUsersTo(function ($request) {
+            return match ($request->user()?->role) {
+                \App\Models\User::ROLE_SUPER_ADMIN => route('dashboard.superadmin', [], false),
+                \App\Models\User::ROLE_INSTITUTION_ADMIN,
+                \App\Models\User::ROLE_INSTITUTION_SECRETARY,
+                \App\Models\User::ROLE_KITCHEN,
+                \App\Models\User::ROLE_MUNICIPALITY => route('dashboard.institution.home', [], false),
+                \App\Models\User::ROLE_MEAL_KIOSK => route('kiosk.show', [], false),
+                \App\Models\User::ROLE_PARENT => route('parent.dashboard', [], false),
+                \App\Models\User::ROLE_EMPLOYEE => route('employee.dashboard', [], false),
+                default => route('home', [], false),
+            };
         });
 
         $middleware->alias([

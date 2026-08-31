@@ -16,7 +16,7 @@ class EnsureParentAccess
         $user = Auth::user();
 
         if (! $user) {
-            return redirect()->route('parent.login');
+            return redirect()->to(route('parent.login', [], false));
         }
 
         if ($user->role !== User::ROLE_PARENT) {
@@ -42,7 +42,7 @@ class EnsureParentAccess
         $request->session()->regenerateToken();
 
         return redirect()
-            ->route('parent.login')
+            ->to(route('parent.login', [], false))
             ->withErrors(['email' => $message]);
     }
 }

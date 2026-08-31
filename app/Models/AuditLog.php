@@ -13,6 +13,7 @@ class AuditLog extends Model
     public const ACTION_INSTITUTION_STATUS_CHANGED = 'institution_status_changed';
     public const ACTION_INSTITUTION_RESTORED = 'institution_restored';
     public const ACTION_PARTNER_BILLING_STATUS_CHANGED = 'partner_billing_status_changed';
+    public const ACTION_INSTITUTION_ADMIN_INVITATION_RESENT = 'institution_admin_invitation_resent';
     public const ACTION_INSTITUTION_PAYMENT_CREATED = 'institution_payment_created';
     public const ACTION_INSTITUTION_PAYMENT_UPDATED = 'institution_payment_updated';
     public const ACTION_INSTITUTION_PAYMENT_DELETED = 'institution_payment_deleted';

@@ -16,7 +16,7 @@ class ParentAuthenticatedSessionController extends Controller
     public function create(): View|RedirectResponse
     {
         if (Auth::check() && Auth::user()?->role === User::ROLE_PARENT && Auth::user()?->is_active) {
-            return redirect()->route('parent.dashboard');
+            return redirect()->to(route('parent.dashboard', [], false));
         }
 
         return view('parent.auth.login');
@@ -69,7 +69,7 @@ class ParentAuthenticatedSessionController extends Controller
             'last_login_at' => now(),
         ])->save();
 
-        return redirect()->intended(route('parent.dashboard'));
+        return redirect()->intended(route('parent.dashboard', [], false));
     }
 
     public function destroy(Request $request): RedirectResponse
@@ -84,7 +84,7 @@ class ParentAuthenticatedSessionController extends Controller
         // felhasználó gyakran dolgozói jogviszonnyal is rendelkezik, és így
         // nem kell külön URL-t átírnia ahhoz, hogy a másik szerepkörével
         // léphessen be.
-        return redirect()->route('auth.login');
+        return redirect()->to(route('parent.login', [], false));
     }
 
     private function reject(Request $request, string $message): RedirectResponse
@@ -95,7 +95,7 @@ class ParentAuthenticatedSessionController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()
-            ->route('parent.login')
+            ->to(route('parent.login', [], false))
             ->withErrors(['email' => $message])
             ->withInput($request->only('email'));
     }

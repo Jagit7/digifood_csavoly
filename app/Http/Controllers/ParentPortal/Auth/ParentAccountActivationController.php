@@ -49,7 +49,7 @@ class ParentAccountActivationController extends Controller
 
         if ($data === null) {
             return redirect()
-                ->route('parent.activation.create')
+                ->to(route('parent.activation.create', [], false))
                 ->withErrors(['email' => 'Az aktiváló link érvénytelen vagy lejárt.']);
         }
 
@@ -64,7 +64,7 @@ class ParentAccountActivationController extends Controller
             $user = $this->service->activate($token, $request->validated('password'));
         } catch (ValidationException $exception) {
             return redirect()
-                ->route('parent.activation.show', ['token' => $token])
+                ->to(route('parent.activation.show', ['token' => $token], false))
                 ->withErrors($exception->errors())
                 ->withInput();
         }
@@ -73,7 +73,7 @@ class ParentAccountActivationController extends Controller
         $request->session()->regenerate();
 
         return redirect()
-            ->route('parent.dashboard')
+            ->to(route('parent.dashboard', [], false))
             ->with('success', 'A szülői fiók aktiválása sikeres volt.');
     }
 
@@ -87,7 +87,7 @@ class ParentAccountActivationController extends Controller
     private function activationRequestedResponse(string $activationUrl, bool $debugLinkAvailable): RedirectResponse
     {
         $redirect = redirect()
-            ->route('parent.activation.create')
+            ->to(route('parent.activation.create', [], false))
             ->with('status', 'Ha a megadott e-mail címhez tartozik aktiválható szülői hozzáférés, a rendszer előkészítette az aktiválási folyamatot.');
 
         if ($debugLinkAvailable) {

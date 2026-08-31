@@ -53,5 +53,9 @@ class InstitutionCalendarRoutesTest extends TestCase
             '/dashboard/institution-admin/school-breaks/calendar/2026-07-13',
             route('dashboard.institution.school-breaks.calendar.day', '2026-07-13')
         );
+        $this->assertStringEndsWith(
+            '/dashboard/institution-admin/school-breaks/calendar/2026-07-13/cancelled',
+            route('dashboard.institution.school-breaks.calendar.cancelled', '2026-07-13')
+        );
     }
 }

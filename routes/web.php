@@ -72,10 +72,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     if (! auth()->check()) {
-        return redirect()->route('auth.login');
+        return redirect(route('auth.login', [], false));
     }
 
-    return redirect()->route('login.redirect');
+    return redirect(route('login.redirect', [], false));
 })->name('home');
 
 Route::prefix('payments/card')->name('payments.card.')->group(function () {
@@ -117,17 +117,17 @@ Route::prefix('auth')->name('auth.')->group(function () {
 
 Route::get('/belepes', function () {
     if (! auth()->check()) {
-        return redirect()->route('auth.login');
+        return redirect(route('auth.login', [], false));
     }
 
     $user = auth()->user();
 
     return match ($user->role) {
-        User::ROLE_SUPER_ADMIN => redirect()->route('dashboard.superadmin'),
-        User::ROLE_INSTITUTION_ADMIN, User::ROLE_INSTITUTION_SECRETARY, User::ROLE_KITCHEN, User::ROLE_MUNICIPALITY => redirect()->route('dashboard.institution.home'),
-        User::ROLE_MEAL_KIOSK => redirect()->route('kiosk.show'),
-        User::ROLE_PARENT => redirect()->route('parent.dashboard'),
-        default => redirect()->route('home'),
+        User::ROLE_SUPER_ADMIN => redirect(route('dashboard.superadmin', [], false)),
+        User::ROLE_INSTITUTION_ADMIN, User::ROLE_INSTITUTION_SECRETARY, User::ROLE_KITCHEN, User::ROLE_MUNICIPALITY => redirect(route('dashboard.institution.home', [], false)),
+        User::ROLE_MEAL_KIOSK => redirect(route('kiosk.show', [], false)),
+        User::ROLE_PARENT => redirect(route('parent.dashboard', [], false)),
+        default => redirect(route('home', [], false)),
     };
 })->name('login.redirect');
 
@@ -189,7 +189,6 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
             Route::post('/items/{item}/mark-paid', [SaasBillingSummaryController::class, 'markItemPaid'])->name('items.mark-paid');
         });
         Route::get('superadmin/revenue-overview', [RevenueOverviewController::class, 'index'])->name('revenue-overview.index');
-
         Route::get('institutions/trashed', [InstitutionController::class, 'trashed'])
             ->name('institutions.trashed');
 
@@ -213,6 +212,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
             Route::get('/', [AdminInstitutionAccessController::class, 'index'])->name('index');
             Route::get('/invite', [AdminInstitutionAccessController::class, 'createInvite'])->name('invite.create');
             Route::post('/invite', [AdminInstitutionAccessController::class, 'storeInvite'])->name('invite.store');
+            Route::post('/invitations/{invitation}/resend', [AdminInstitutionAccessController::class, 'resendInvite'])->name('invite.resend');
             Route::get('/{user}/edit', [AdminInstitutionAccessController::class, 'edit'])->name('edit');
             Route::put('/{user}', [AdminInstitutionAccessController::class, 'update'])->name('update');
             Route::patch('/{user}/toggle-active', [AdminInstitutionAccessController::class, 'toggleActive'])->name('toggle-active');
@@ -309,6 +309,9 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
 
                 // Iskolai szünetek
                 Route::get('/calendar', [SchoolBreakController::class, 'calendar'])->name('calendar');
+                Route::get('/calendar/{date}/cancelled', [SchoolBreakController::class, 'calendarCancelled'])
+                    ->where('date', '\\d{4}-\\d{2}-\\d{2}')
+                    ->name('calendar.cancelled');
                 Route::get('/calendar/{date}', [SchoolBreakController::class, 'calendarDay'])
                     ->where('date', '\\d{4}-\\d{2}-\\d{2}')
                     ->name('calendar.day');

@@ -16,8 +16,8 @@ Route::prefix('dolgozo')
     ->group(function () {
         Route::get('/', function () {
             return auth()->check()
-                ? redirect()->route('employee.dashboard')
-                : redirect()->route('employee.login');
+                ? redirect(route('employee.dashboard', [], false))
+                : redirect(route('employee.login', [], false));
         })->name('home');
 
         Route::middleware('guest')->group(function () {

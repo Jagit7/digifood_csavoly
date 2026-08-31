@@ -91,7 +91,7 @@
                                             <td>{{ $user->email }}</td>
                                             <td>
                                                 <span class="badge bg-primary">
-                                                    {{ $roleLabels[$user->role] ?? $user->role }}
+                                                    {{ $roleLabels[$user->pivot->scope_role ?? $user->role] ?? ($user->pivot->scope_role ?? $user->role) }}
                                                 </span>
                                             </td>
                                             <td>
@@ -151,10 +151,18 @@
                                                 </span>
                                             </td>
                                             <td>
-                                                <span class="badge bg-warning text-dark">Meghívva</span>
+                                                @if($invitation->isExpired())
+                                                    <span class="badge bg-danger">Lejárt</span>
+                                                @else
+                                                    <span class="badge bg-warning text-dark">Függőben</span>
+                                                @endif
                                             </td>
                                             <td>
-                                                <span class="badge bg-warning text-dark">Még nem fogadta el</span>
+                                                @if($invitation->isExpired())
+                                                    <span class="badge bg-danger">Lejárt</span>
+                                                @else
+                                                    <span class="badge bg-warning text-dark">Még nem fogadta el</span>
+                                                @endif
                                                 <div class="small text-muted">
                                                     Meghívva: {{ $invitation->created_at?->format('Y.m.d. H:i') }}
                                                 </div>
@@ -166,7 +174,16 @@
                                                 @endif
                                             </td>
                                             <td class="text-end">
-                                                <span class="text-muted small">Elfogadásra vár</span>
+                                                @if($invitation->isExpired())
+                                                    <form method="POST" action="{{ route('dashboard.admin-access.invite.resend', $invitation) }}" class="d-inline">
+                                                        @csrf
+                                                        <button type="submit" class="btn btn-outline-primary btn-xs" style="min-width: 160px;">
+                                                            Meghívó újraküldése
+                                                        </button>
+                                                    </form>
+                                                @else
+                                                    <span class="text-muted small">Elfogadásra vár</span>
+                                                @endif
                                             </td>
                                         </tr>
                                     @endforeach

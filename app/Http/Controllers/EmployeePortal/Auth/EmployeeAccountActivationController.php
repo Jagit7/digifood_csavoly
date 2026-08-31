@@ -49,7 +49,7 @@ class EmployeeAccountActivationController extends Controller
 
         if ($data === null) {
             return redirect()
-                ->route('employee.activation.create')
+                ->to(route('employee.activation.create', [], false))
                 ->withErrors(['email' => 'Az aktiváló link érvénytelen vagy lejárt.']);
         }
 
@@ -64,7 +64,7 @@ class EmployeeAccountActivationController extends Controller
             $user = $this->service->activate($token, $request->validated('password'));
         } catch (ValidationException $exception) {
             return redirect()
-                ->route('employee.activation.show', ['token' => $token])
+                ->to(route('employee.activation.show', ['token' => $token], false))
                 ->withErrors($exception->errors())
                 ->withInput();
         }
@@ -73,14 +73,14 @@ class EmployeeAccountActivationController extends Controller
         $request->session()->regenerate();
 
         return redirect()
-            ->route('employee.dashboard')
+            ->to(route('employee.dashboard', [], false))
             ->with('success', 'A dolgozói fiók aktiválása sikeres volt.');
     }
 
     private function activationRequestedResponse(string $activationUrl, bool $debugLinkAvailable): RedirectResponse
     {
         $redirect = redirect()
-            ->route('employee.activation.create')
+            ->to(route('employee.activation.create', [], false))
             ->with('status', 'Ha a megadott e-mail címhez tartozik aktiválható dolgozói hozzáférés, a rendszer előkészítette az aktiválási folyamatot.');
 
         if ($debugLinkAvailable) {

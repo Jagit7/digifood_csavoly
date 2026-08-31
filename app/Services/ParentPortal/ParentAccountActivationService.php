@@ -155,7 +155,7 @@ class ParentAccountActivationService
         if ($activeParentUser !== null) {
             return [null, [
                 'status' => 'already_active_parent',
-                'login_url' => route('parent.login'),
+                'login_url' => route('parent.login', [], false),
             ]];
         }
 

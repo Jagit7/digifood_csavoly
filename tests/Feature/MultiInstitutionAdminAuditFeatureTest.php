@@ -219,6 +219,53 @@ class MultiInstitutionAdminAuditFeatureTest extends TestCase
         $this->assertNotNull($inviteB->fresh()->accepted_at);
     }
 
+    public function test_store_invite_reuses_existing_active_user_without_sending_second_activation(): void
+    {
+        $institutionA = $this->createInstitution('AUDIT-A9');
+        $institutionB = $this->createInstitution('AUDIT-B9');
+        $superAdmin = User::factory()->create([
+            'role' => User::ROLE_SUPER_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $user = User::factory()->create([
+            'name' => 'Meglevo Admin',
+            'email' => 'existing-admin@example.test',
+            'role' => User::ROLE_INSTITUTION_ADMIN,
+            'institution_id' => $institutionA->id,
+            'is_active' => true,
+            'accepted_invitation_at' => now()->subDay(),
+            'email_verified_at' => now()->subDay(),
+        ]);
+
+        $this->attachInstitutionRole($user, $institutionA, User::ROLE_INSTITUTION_ADMIN);
+
+        $this->actingAs($superAdmin);
+
+        $response = $this->post(route('dashboard.admin-access.invite.store'), [
+            'institution_id' => $institutionB->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => User::ROLE_INSTITUTION_SECRETARY,
+        ]);
+
+        $response->assertRedirect(route('dashboard.admin-access.index'));
+        $response->assertSessionHas('success', 'A meglévő, aktív felhasználó azonnal hozzá lett rendelve az intézményhez. Nem küldtünk új aktiváló meghívót.');
+
+        $this->assertSame(1, User::query()->where('email', $user->email)->count());
+        $this->assertDatabaseHas('institution_user', [
+            'institution_id' => $institutionB->id,
+            'user_id' => $user->id,
+            'scope_role' => User::ROLE_INSTITUTION_SECRETARY,
+        ]);
+        $this->assertDatabaseHas('institution_admin_invitations', [
+            'institution_id' => $institutionB->id,
+            'email' => $user->email,
+            'role' => User::ROLE_INSTITUTION_SECRETARY,
+        ]);
+        $this->assertNotNull(InstitutionAdminInvitation::query()->where('institution_id', $institutionB->id)->where('email', $user->email)->value('accepted_at'));
+    }
+
     public function test_same_institution_repeat_invitation_does_not_duplicate_pivot(): void
     {
         [$institution, $admin] = $this->createInstitutionAdmin('AUDIT-A6');

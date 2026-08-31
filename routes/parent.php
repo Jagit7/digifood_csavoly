@@ -20,8 +20,8 @@ Route::prefix('szulo')
     ->group(function () {
         Route::get('/', function () {
             return auth()->check()
-                ? redirect()->route('parent.dashboard')
-                : redirect()->route('parent.login');
+                ? redirect(route('parent.dashboard', [], false))
+                : redirect(route('parent.login', [], false));
         })->name('home');
 
         Route::middleware('guest')->group(function () {
