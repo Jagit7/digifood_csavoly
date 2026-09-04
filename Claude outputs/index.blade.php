@@ -509,11 +509,9 @@
                                     @endif
                                 </td>
                                 @foreach(range(1, $periods['meal_period_days_in_month']) as $dayNumber)
-                                    @php
-                                        $date = $periods['meal_period']->copy()->day($dayNumber)->toDateString();
-                                        $day = $daysByDate->get($date);
-                                        $statusClass = $day ? 'df-status-' . \Illuminate\Support\Str::of($day->status)->lower()->replace('_', '-') : '';
-                                    @endphp
+                                    @php($date = $periods['meal_period']->copy()->day($dayNumber)->toDateString())
+                                    @php($day = $daysByDate->get($date))
+                                    @php($statusClass = $day ? 'df-status-' . \Illuminate\Support\Str::of($day->status)->lower()->replace('_', '-') : '')
                                     <td class="df-payment-day-col {{ $statusClass }}" title="{{ $day?->status }} · {{ $date }}">
                                         @if($day)
                                             <a class="df-cell-link" href="{{ route('dashboard.institution.payment-obligations.show', ['statement' => $statement->id, 'date' => $date]) }}">
@@ -576,9 +574,7 @@
                                             <span class="badge bg-secondary-subtle text-secondary">Nem szükséges</span>
                                         @else
                                             @if($institutionSetting->invoicing_enabled && $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_MANUAL)
-                                                @php
-                                                    $renderedInvoiceModule = true;
-                                                @endphp
+                                                @php($renderedInvoiceModule = true)
                                                 <div class="df-billing-block">
                                                     <form method="POST"
                                                           action="{{ route('dashboard.institution.payment-obligations.invoice.update', $statement) }}"
@@ -616,10 +612,8 @@
                                                 @if(! $institutionSetting->invoicing_enabled)
                                                     <span class="badge bg-secondary-subtle text-secondary">Nincs számlázási modul</span>
                                                 @elseif($institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_BILLINGO || $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_SZAMLAZZ_HU)
-                                                    @php
-                                                        $renderedInvoiceModule = true;
-                                                        $providerLabel = $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_BILLINGO ? 'Billingo' : 'Számlázz.hu';
-                                                    @endphp
+                                                    @php($renderedInvoiceModule = true)
+                                                    @php($providerLabel = $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_BILLINGO ? 'Billingo' : 'Számlázz.hu')
                                                     @if(filled($statement->invoice_number))
                                                         <span class="badge bg-success">{{ $statement->invoice_number }}</span>
                                                         <span class="badge bg-light text-dark border">{{ $providerLabel }}</span>

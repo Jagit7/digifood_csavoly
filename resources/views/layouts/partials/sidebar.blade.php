@@ -67,7 +67,25 @@
     <div class="deznav-scroll">
 
         {{-- INTÉZMÉNY FEJLÉC --}}
-        @if(!$institution)
+        {{-- INTÉZMÉNY FEJLÉC --}}
+        @if($institution)
+            <div class="px-3 pt-4 pb-3 border-bottom border-light border-opacity-10" style="margin-bottom:30px;">
+                <div class="d-flex align-items-center">
+                    <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;margin-right:12px;">
+                        <i class="fa-solid fa-building"></i>
+                    </div>
+
+                    <div class="flex-grow-1">
+                        <div style="color:#fff;font-weight:600;font-size:14px;line-height:1.3;">
+                            {{ $institution->name }}
+                        </div>
+                        <div style="color:rgba(255,255,255,.65);font-size:12px;margin-top:2px;">
+                            {{ $roleLabels[$role] ?? 'Kezelőfelület' }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @else
             <div class="px-3 pt-4 pb-3 border-bottom border-light border-opacity-10" style="margin-bottom:30px;">
                 <div class="d-flex align-items-center">
                     <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;margin-right:12px;">
@@ -405,6 +423,7 @@
                             <li><a href="{{ route('dashboard.institution.profile.edit') }}">Profil</a></li>
                             <li><a href="{{ route('dashboard.institution.settings.invoicing.edit') }}">Számlázás és fizetés</a></li>
                             <li><a href="{{ route('dashboard.institution.settings.edit') }}">Beállítások</a></li>
+                            <li><a href="{{ route('dashboard.institution.daily-headcount-emails.index') }}">Napi létszám e-mailek</a></li>
                             <li><a href="{{ route('dashboard.institution.meal-types.index') }}">Étkezés beállításai</a></li>
                             <li><a href="{{ route('dashboard.institution.meal-packages.index') }}">Menücsomagok</a></li>
                             <li>

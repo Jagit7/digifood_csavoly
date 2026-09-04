@@ -9,8 +9,8 @@ use App\Http\Controllers\ParentPortal\ParentHandbookController;
 use App\Http\Controllers\ParentPortal\ParentInvoiceController;
 use App\Http\Controllers\ParentPortal\ParentLegalPageController;
 use App\Http\Controllers\ParentPortal\ParentMealCancellationController;
-use App\Http\Controllers\ParentPortal\ParentMenuController;
 use App\Http\Controllers\ParentPortal\ParentMenuChoiceController;
+use App\Http\Controllers\ParentPortal\ParentMenuController;
 use App\Http\Controllers\ParentPortal\ParentMonthlySettlementController;
 use App\Http\Controllers\ParentPortal\ParentPaymentController;
 use Illuminate\Support\Facades\Route;
@@ -20,20 +20,23 @@ Route::prefix('szulo')
     ->group(function () {
         Route::get('/', function () {
             return auth()->check()
-                ? redirect(route('parent.dashboard', [], false))
-                : redirect(route('parent.login', [], false));
+                ? redirect()->route('parent.dashboard')
+                : redirect()->route('parent.login');
         })->name('home');
 
         Route::middleware('guest')->group(function () {
             Route::get('/login', [ParentAuthenticatedSessionController::class, 'create'])->name('login');
             Route::post('/login', [ParentAuthenticatedSessionController::class, 'store'])->name('login.store');
-            Route::get('/aktivalas', [ParentAccountActivationController::class, 'create'])->name('activation.create');
-            Route::post('/aktivalas', [ParentAccountActivationController::class, 'send'])
-                ->middleware('throttle:5,1')
-                ->name('activation.send');
-            Route::get('/aktivalas/{token}', [ParentAccountActivationController::class, 'show'])->name('activation.show');
-            Route::post('/aktivalas/{token}', [ParentAccountActivationController::class, 'store'])->name('activation.store');
         });
+
+        // Az aktiváló link tokennel védett, ezért azt más Digifood szerepkör
+        // aktív sessionje mellett is meg kell tudni nyitni és beváltani.
+        Route::get('/aktivalas', [ParentAccountActivationController::class, 'create'])->name('activation.create');
+        Route::post('/aktivalas', [ParentAccountActivationController::class, 'send'])
+            ->middleware('throttle:5,1')
+            ->name('activation.send');
+        Route::get('/aktivalas/{token}', [ParentAccountActivationController::class, 'show'])->name('activation.show');
+        Route::post('/aktivalas/{token}', [ParentAccountActivationController::class, 'store'])->name('activation.store');
 
         Route::middleware(['auth', 'parent'])->group(function () {
             Route::post('/logout', [ParentAuthenticatedSessionController::class, 'destroy'])->name('logout');
@@ -53,11 +56,20 @@ Route::prefix('szulo')
                 ->name('menu-choices.index');
             Route::put('/menuvalasztas/{child}', [ParentMenuChoiceController::class, 'update'])
                 ->name('menu-choices.update');
-            Route::get('/etlapok', [ParentMenuController::class, 'index'])
+
+            // Feltöltött étlapok (intézmény által feltöltött heti/diétás/A-B
+            // étlap dokumentumok szülői megtekintése) - a controller
+            // (ParentMenuController) és a nézet (parent.menus.index) már
+            // korábban elkészült, de a route regisztrációja lemaradt a
+            // routes/parent.php-ból, emiatt a sidebar
+            // route('parent.menus.index') hívása RouteNotFoundException-t
+            // dobott minden szülői oldalon (a sidebar minden szülői nézet
+            // része).
+            Route::get('/feltoltott-etlapok', [ParentMenuController::class, 'index'])
                 ->name('menus.index');
-            Route::get('/etlapok/{menu}/megtekintes', [ParentMenuController::class, 'show'])
+            Route::get('/feltoltott-etlapok/{menu}', [ParentMenuController::class, 'show'])
                 ->name('menus.show');
-            Route::get('/etlapok/{menu}/letoltes', [ParentMenuController::class, 'download'])
+            Route::get('/feltoltott-etlapok/{menu}/letoltes', [ParentMenuController::class, 'download'])
                 ->name('menus.download');
             Route::get('/havi-elszamolasok', [ParentMonthlySettlementController::class, 'index'])
                 ->name('monthly-settlements.index');

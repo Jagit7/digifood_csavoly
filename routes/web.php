@@ -13,6 +13,7 @@ use App\Http\Controllers\Dashboard\InstitutionAdmin\ChildPrintListController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\ClassCancellationController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\ClassGroupController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\DailyAttendanceEmailSettingController;
+use App\Http\Controllers\Dashboard\InstitutionAdmin\DailyHeadcountEmailSettingController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\DailyOperationController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\DataImportController;
 use App\Http\Controllers\Dashboard\InstitutionAdmin\DietaryMenuController;
@@ -544,6 +545,20 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
                     Route::post('/groups/{groupName}/recipients', [DailyAttendanceEmailSettingController::class, 'updateRecipients'])->name('recipients.update');
                     Route::get('/groups/{groupName}/preview', [DailyAttendanceEmailSettingController::class, 'preview'])->name('preview');
                     Route::post('/groups/{groupName}/test-send', [DailyAttendanceEmailSettingController::class, 'testSend'])->name('test-send');
+                });
+
+                /*
+                |----------------------------------------------------------------
+                | Napi létszám e-mailek (osztályonként/csoportonként, iskolai
+                | és óvodai intézménynél egyaránt)
+                |----------------------------------------------------------------
+                */
+                Route::prefix('daily-headcount-emails')->name('daily-headcount-emails.')->group(function () {
+                    Route::get('/', [DailyHeadcountEmailSettingController::class, 'index'])->name('index');
+                    Route::post('/schedule', [DailyHeadcountEmailSettingController::class, 'updateSchedule'])->name('schedule.update');
+                    Route::post('/groups/{groupName}', [DailyHeadcountEmailSettingController::class, 'updateGroup'])->name('groups.update');
+                    Route::get('/groups/{groupName}/preview', [DailyHeadcountEmailSettingController::class, 'preview'])->name('groups.preview');
+                    Route::post('/groups/{groupName}/test-send', [DailyHeadcountEmailSettingController::class, 'testSend'])->name('groups.test-send');
                 });
 
                 Route::prefix('meal-types')->name('meal-types.')->group(function () {

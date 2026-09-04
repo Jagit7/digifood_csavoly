@@ -22,6 +22,17 @@ class MonthlyPaymentSummaryExportService
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Teljes havi lista');
 
+        // A "Zsárica fizetendő" / "Óvodai fizetendő" oszlopfejlécek csak a
+        // kétkomponensű (split_manual_transfer) számlázást használó
+        // intézményeknél helytállóak - ld. felhasználói kérés: a csávolyi
+        // (és minden más, kizárólag "legacy" modellt használó) intézmény
+        // exportjában ez a két elnevezés félrevezető lenne, mert a
+        // "foundation_total_payable" mező ilyenkor a teljes (nem-Zsárica)
+        // havi fizetendőt hordozza. Az oszlopok POZÍCIÓJÁT és SZÁMÁT
+        // szándékosan NEM változtatjuk (ld. lejjebb a fix oszlop-offsetek),
+        // csak a fejléc szövegét - ez a legkisebb kockázatú javítás.
+        $isSplitExport = $statements->contains(fn (MonthlyPaymentStatement $statement) => $statement->usesSplitPaymentModel());
+
         $headers = [
             'Sorszám',
             'Gyermek neve',
@@ -37,8 +48,8 @@ class MonthlyPaymentSummaryExportService
             'Korábbi egyenleg',
             'Következő havi alap',
             'Előző havi jóváírás',
-            'Zsárica fizetendő',
-            'Óvodai fizetendő',
+            $isSplitExport ? 'Zsárica fizetendő' : 'Havi fizetendő',
+            $isSplitExport ? 'Óvodai fizetendő' : 'Óvodai rész (nincs használatban)',
             'Teljes fizetendő',
             'Név',
         ]);

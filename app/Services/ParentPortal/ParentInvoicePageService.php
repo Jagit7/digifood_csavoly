@@ -6,6 +6,7 @@ use App\Models\Child;
 use App\Models\InstitutionInvoice;
 use App\Models\InstitutionPayment;
 use App\Models\User;
+use App\Services\Finance\InstitutionInvoiceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,6 +16,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ParentInvoicePageService
 {
+    public function __construct(
+        private readonly InstitutionInvoiceService $invoiceService
+    ) {
+    }
+
     public function buildPageData(User $user, ?string $yearFilter): array
     {
         $today = CarbonImmutable::now(config('app.timezone'))->startOfDay();
@@ -39,18 +45,29 @@ class ParentInvoicePageService
         ];
     }
 
+    /**
+     * FONTOS (2026-09-es javítás): a számla PDF-je a bizonylatot ténylegesen
+     * kiállító szolgáltató (Billingo/Számlázz.hu providerek, ld.
+     * InstitutionInvoiceService::store()) MINDIG a "local" (privát) storage
+     * lemezre menti - szándékosan, mert a bizonylat személyes adatokat
+     * (szülő neve, címe, adószáma) tartalmaz, ezért nem lehet egy
+     * kitalálható, publikus /storage/... URL-en keresztül bárkinek elérhető
+     * (ld. InstitutionInvoiceController::download() ugyanerről a szabályról
+     * az admin oldalon). Korábban ez a metódus tévesen a "public" lemezről
+     * próbálta letölteni a fájlt, ami miatt a szülői letöltés minden, a
+     * jelenlegi rendszeren keresztül kiállított számlánál 404-et adott
+     * vissza. A hasUsableInvoicePdf()/'local' diszk használata az
+     * InstitutionInvoiceService-ben már használt, bizonyítottan helyes
+     * mintát követi.
+     */
     public function downloadInvoiceDocument(User $user, InstitutionInvoice $invoice): Response
     {
         $resolvedInvoice = $this->findVisibleInvoice($user, $invoice->id);
 
-        if (filled($resolvedInvoice->invoice_pdf_path)) {
-            if (! Storage::disk('public')->exists($resolvedInvoice->invoice_pdf_path)) {
-                abort(404);
-            }
-
+        if ($this->invoiceService->hasUsableInvoicePdf($resolvedInvoice)) {
             $downloadName = ($resolvedInvoice->invoice_number ?: 'szamla-'.$resolvedInvoice->id).'.pdf';
 
-            return Storage::disk('public')->download($resolvedInvoice->invoice_pdf_path, $downloadName);
+            return Storage::disk('local')->download($resolvedInvoice->invoice_pdf_path, $downloadName);
         }
 
         if (filled($resolvedInvoice->invoice_url)) {
@@ -255,7 +272,12 @@ class ParentInvoicePageService
 
     private function hasDownloadableDocument(InstitutionInvoice $invoice): bool
     {
-        return filled($invoice->invoice_pdf_path) || filled($invoice->invoice_url);
+        // Ld. downloadInvoiceDocument() kommentjét: a "letölthető" jelzésnek
+        // ugyanazt a - ténylegesen a 'local' lemezen létező, %PDF- fejléccel
+        // kezdődő fájlt ellenőrző - logikát kell követnie, amit maga a
+        // letöltés is használ, különben a lista "letölthető"-nek jelölne
+        // olyan számlát is, ami valójában nem tölthető le (vagy fordítva).
+        return $this->invoiceService->hasUsableInvoicePdf($invoice) || filled($invoice->invoice_url);
     }
 
     private function parentStatusMeta(InstitutionInvoice $invoice): array

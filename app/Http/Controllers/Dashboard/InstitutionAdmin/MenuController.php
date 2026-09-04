@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Dashboard\InstitutionAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Menu;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
 
 class MenuController extends Controller
@@ -16,7 +16,7 @@ class MenuController extends Controller
      */
     public function index()
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = auth()->user()->institutions()->first();
 
         $menus = Menu::where('institution_id', $institution->id)
             ->orderByDesc('week_start')
@@ -83,7 +83,7 @@ class MenuController extends Controller
      */
     public function create()
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
         return view('dashboard.institution_admin.menus.create', compact(
             'institution'
@@ -95,7 +95,11 @@ class MenuController extends Controller
      */
     public function store(Request $request)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
+
+        if (!$institution) {
+            abort(403, 'Nincs intézmény hozzárendelve.');
+        }
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -141,9 +145,9 @@ class MenuController extends Controller
 
     public function edit(Menu $menu)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
-        if ($menu->institution_id !== $institution->id) {
+        if (!$institution || $menu->institution_id !== $institution->id) {
             abort(403);
         }
 
@@ -155,9 +159,9 @@ class MenuController extends Controller
 
     public function update(Request $request, Menu $menu)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
-        if ($menu->institution_id !== $institution->id) {
+        if (!$institution || $menu->institution_id !== $institution->id) {
             abort(403);
         }
 
@@ -213,9 +217,9 @@ class MenuController extends Controller
 
     public function show(Menu $menu)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
-        if ($menu->institution_id !== $institution->id) {
+        if (!$institution || $menu->institution_id !== $institution->id) {
             abort(403);
         }
 
@@ -227,9 +231,9 @@ class MenuController extends Controller
 
     public function destroy(Menu $menu)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
-        if ($menu->institution_id !== $institution->id) {
+        if (!$institution || $menu->institution_id !== $institution->id) {
             abort(403);
         }
 
@@ -244,19 +248,50 @@ class MenuController extends Controller
 
     public function download(Menu $menu)
     {
-        $institution = $this->currentAdminInstitution();
+        $institution = Auth::user()->institutions()->first();
 
-        if ($menu->institution_id !== $institution->id) {
+        if (!$institution || $menu->institution_id !== $institution->id) {
             abort(403);
         }
 
-        if (! $menu->file_path || ! Storage::disk('public')->exists($menu->file_path)) {
+        if (!$menu->file_path || !Storage::disk('public')->exists($menu->file_path)) {
             abort(404, 'A fájl nem található.');
         }
 
         return Storage::disk('public')->download(
             $menu->file_path,
             $menu->file_name
+        );
+    }
+
+    /**
+     * Az étlap fájljának böngészőben megjelenített (inline) előnézete.
+     *
+     * A fájlt közvetlenül a "public" storage lemezről olvassuk fel és
+     * streameljük ki, ezért nem függ attól, hogy a public/storage
+     * szimbolikus link létrejött-e a szerveren (php artisan storage:link).
+     * A Content-Type-ot a mentett MIME-type (vagy megbízhatatlan MIME-type
+     * hiányában a fájlkiterjesztés) alapján, nem törékeny string
+     * összehasonlítással állapítjuk meg (lásd Menu::previewMimeType()).
+     */
+    public function preview(Menu $menu)
+    {
+        $institution = Auth::user()->institutions()->first();
+
+        if (!$institution || $menu->institution_id !== $institution->id) {
+            abort(403);
+        }
+
+        if (!$menu->file_path || !Storage::disk('public')->exists($menu->file_path)) {
+            abort(404, 'A fájl nem található.');
+        }
+
+        return response()->file(
+            Storage::disk('public')->path($menu->file_path),
+            [
+                'Content-Type' => $menu->previewMimeType(),
+                'Content-Disposition' => 'inline; filename="'.$menu->file_name.'"',
+            ]
         );
     }
 }

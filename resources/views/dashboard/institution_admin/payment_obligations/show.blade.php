@@ -9,6 +9,10 @@
     $creditPeriod = $paymentPeriod->copy()->subMonth();
     $isSplit = $statement->usesSplitPaymentModel();
     $financialSummary = $financialSummary ?? [];
+    $displayTotalPayable = \App\Support\Finance\SettlementAmountPresenter::payableDisplayAmount((int) $statement->total_payable);
+    $overpaymentAmount = \App\Support\Finance\SettlementAmountPresenter::overpaymentAmount((int) $statement->total_payable);
+    $previousBalanceLabel = \App\Support\Finance\SettlementAmountPresenter::previousBalanceLabel((int) $statement->previous_balance);
+    $previousBalanceDisplay = \App\Support\Finance\SettlementAmountPresenter::previousBalanceDisplayAmount((int) $statement->previous_balance);
 @endphp
 
 @section('content')
@@ -44,10 +48,14 @@
     <div class="row">
         @include('layouts.partials.components.ui.stats-card', ['title' => $mealPeriod->translatedFormat('Y. F') . 'i tervezett étkezések', 'value' => $formatForint($statement->meal_amount), 'subtitle' => $statement->planned_meal_days . ' napból számolva', 'icon' => 'fa-solid fa-utensils', 'color' => 'blue'])
         @include('layouts.partials.components.ui.stats-card', ['title' => $creditPeriod->translatedFormat('Y. F') . 'i lemondási jóváírás', 'value' => $formatForint($statement->previous_cancellation_credit), 'subtitle' => $statement->previous_month_cancelled_days . ' nap jóváírása', 'icon' => 'fa-solid fa-reply', 'color' => 'green'])
-        @include('layouts.partials.components.ui.stats-card', ['title' => 'Zsárica rész', 'value' => $formatForint($statement->foundation_total_payable), 'subtitle' => 'Befizetve: ' . $formatForint((int) ($financialSummary['foundation_paid'] ?? 0)), 'icon' => 'fa-solid fa-hand-holding-heart', 'color' => 'orange'])
-        @include('layouts.partials.components.ui.stats-card', ['title' => 'Óvodai rész', 'value' => $formatForint($statement->kindergarten_total_payable), 'subtitle' => 'Befizetve: ' . $formatForint((int) ($financialSummary['kindergarten_paid'] ?? 0)), 'icon' => 'fa-solid fa-school', 'color' => 'green'])
-        @include('layouts.partials.components.ui.stats-card', ['title' => 'Korábbi egyenleg', 'value' => $formatForint($statement->previous_balance), 'subtitle' => 'Komponensenként hozott tartozás vagy túlfizetés', 'icon' => 'fa-solid fa-clock-rotate-left', 'color' => 'blue'])
-        @include('layouts.partials.components.ui.stats-card', ['title' => 'Teljes havi fizetési kötelezettség', 'value' => $formatForint($statement->total_payable), 'subtitle' => 'A két számla külön egyenlegéből áll össze', 'icon' => 'fa-solid fa-wallet', 'color' => 'purple'])
+        @if($isSplit)
+            @include('layouts.partials.components.ui.stats-card', ['title' => 'Zsárica rész', 'value' => $formatForint($statement->foundation_total_payable), 'subtitle' => 'Befizetve: ' . $formatForint((int) ($financialSummary['foundation_paid'] ?? 0)), 'icon' => 'fa-solid fa-hand-holding-heart', 'color' => 'orange'])
+            @include('layouts.partials.components.ui.stats-card', ['title' => 'Óvodai rész', 'value' => $formatForint($statement->kindergarten_total_payable), 'subtitle' => 'Befizetve: ' . $formatForint((int) ($financialSummary['kindergarten_paid'] ?? 0)), 'icon' => 'fa-solid fa-school', 'color' => 'green'])
+        @else
+            @include('layouts.partials.components.ui.stats-card', ['title' => 'Aktuális havi fizetendő', 'value' => $formatForint($statement->invoiceable_amount), 'subtitle' => 'A korábbi egyenleg és a korrekciók nélkül', 'icon' => 'fa-solid fa-hand-holding-heart', 'color' => 'orange'])
+        @endif
+        @include('layouts.partials.components.ui.stats-card', ['title' => $previousBalanceLabel, 'value' => $formatForint($previousBalanceDisplay), 'subtitle' => $isSplit ? 'Komponensenként hozott tartozás vagy túlfizetés' : 'A korábbi hónapok(ból) hozott egyenleg', 'icon' => 'fa-solid fa-clock-rotate-left', 'color' => $previousBalanceLabel === 'Korábbi túlfizetés' ? 'green' : 'blue'])
+        @include('layouts.partials.components.ui.stats-card', ['title' => 'Fizetendő összesen', 'value' => $formatForint($displayTotalPayable), 'subtitle' => $overpaymentAmount > 0 ? ('Fennmaradó túlfizetés: ' . $formatForint($overpaymentAmount)) : ($isSplit ? 'A két számla külön egyenlegéből áll össze' : 'A havi díj és a korábbi egyenleg összesen'), 'icon' => 'fa-solid fa-wallet', 'color' => 'purple'])
     </div>
 
     <div class="alert {{ $statement->status === \App\Models\PaymentObligation\MonthlyPaymentStatement::STATUS_CLOSED ? 'alert-secondary' : 'alert-info' }}">
@@ -110,20 +118,35 @@
                         </div>
                     @else
                         <div class="pt-3 pb-2 border-bottom">
-                            <div class="d-flex justify-content-between"><span>{{ $periods['meal_period_label'] }}i étkezések</span><strong>{{ $formatForint($statement->meal_amount) }}</strong></div>
+                            <div class="d-flex justify-content-between"><span>{{ $periods['meal_period_label'] }}i étkezési díj (következő havi)</span><strong>{{ $formatForint($statement->meal_amount) }}</strong></div>
                             <div class="d-flex justify-content-between"><span>{{ $periods['credit_period_label'] }}i lemondások jóváírása</span><strong>-{{ $formatForint($statement->previous_cancellation_credit) }}</strong></div>
-                            <div class="d-flex justify-content-between"><span>Egyéb korrekció</span><strong>{{ $formatForint($statement->billing_adjustment_amount) }}</strong></div>
-                            <div class="d-flex justify-content-between"><span>Korábbi egyenleg</span><strong>{{ $formatForint($statement->previous_balance) }}</strong></div>
+                            @if((int) $statement->billing_adjustment_amount !== 0)
+                                <div class="d-flex justify-content-between"><span>Egyéb korrekció (a havi díjat módosítja)</span><strong>{{ $formatForint($statement->billing_adjustment_amount) }}</strong></div>
+                            @endif
+                            <div class="d-flex justify-content-between border-top pt-2 mt-1">
+                                <span class="fw-semibold">Aktuális havi fizetendő</span>
+                                <strong>{{ $formatForint($statement->invoiceable_amount) }}</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span>{{ $previousBalanceLabel }}</span>
+                                <strong>{{ $formatForint($previousBalanceDisplay) }}</strong>
+                            </div>
                         </div>
                     @endif
                     <div class="d-flex justify-content-between py-2 border-bottom">
                         <span>Fizetési határidő</span>
-                        <strong>{{ $statement->due_at->format('Y.m.d. H:i') }}</strong>
+                        <strong>{{ $statement->due_at?->format('Y.m.d. H:i') ?? '—' }}</strong>
                     </div>
                     <div class="d-flex justify-content-between pt-3">
-                        <span class="fw-semibold">Összesen fizetendő</span>
-                        <strong>{{ $formatForint($statement->total_payable) }}</strong>
+                        <span class="fw-semibold">Fizetendő összesen</span>
+                        <strong>{{ $formatForint($displayTotalPayable) }}</strong>
                     </div>
+                    @if($overpaymentAmount > 0)
+                        <div class="d-flex justify-content-between text-success">
+                            <span class="fw-semibold">Fennmaradó túlfizetés</span>
+                            <strong>{{ $formatForint($overpaymentAmount) }}</strong>
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>

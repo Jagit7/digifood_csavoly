@@ -141,7 +141,7 @@ class BillingAddressController extends Controller
                         ->orWhere('group_name', 'like', "%{$search}%");
                 });
             })
-            ->when($quality !== '', function ($query) use ($quality, $primaryBillingConstraint) {
+            ->when($quality !== '', function ($query) use ($quality, $primaryBillingConstraint, $missingMealChildIds) {
                 $this->applyQualityFilter($query, $quality, $primaryBillingConstraint, $missingMealChildIds);
             })
             ->when(filled($discountTypeId), function ($query) use ($discountTypeId, $activeDiscountPeriodConstraint, $noDiscountTypeId) {

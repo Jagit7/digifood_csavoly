@@ -12,6 +12,7 @@ use App\Models\PaymentObligation\MonthlyPaymentStatement;
 use App\Models\User;
 use App\Services\Finance\InstitutionPaymentComponentService;
 use App\Support\Finance\PaymentComponent;
+use App\Support\Finance\SettlementAmountPresenter;
 use App\Support\PaymentObligation\MonthlyPaymentDayStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -316,11 +317,13 @@ class ParentMonthlySettlementService
             ->sum('original_daily_price');
         $otherCredits = max(0, (int) $statement->previous_cancellation_credit - $advanceCancellationAmount - $classCancellationAmount);
         $previousBalance = (int) $statement->previous_balance;
+        $totalPayable = (int) $statement->total_payable;
 
         return [
             'child' => $child,
             'statement' => $statement,
             'has_statement' => true,
+            'is_split' => $statement->usesSplitPaymentModel(),
             'month_label' => $month->locale('hu')->isoFormat('YYYY. MMMM'),
             'payment_period_label' => $periods['payment_period_label'],
             'meal_period_label' => $periods['meal_period_label'],
@@ -337,7 +340,11 @@ class ParentMonthlySettlementService
             'correction_amount' => (int) $statement->billing_adjustment_amount,
             'invoiceable_amount' => (int) $statement->invoiceable_amount,
             'previous_balance' => $previousBalance,
+            'previous_balance_label' => SettlementAmountPresenter::previousBalanceLabel($previousBalance),
+            'previous_balance_display' => SettlementAmountPresenter::previousBalanceDisplayAmount($previousBalance),
             'current_total' => (int) $statement->total_payable,
+            'current_total_display' => SettlementAmountPresenter::payableDisplayAmount($totalPayable),
+            'overpayment_amount' => SettlementAmountPresenter::overpaymentAmount($totalPayable),
             'paid_amount' => $paidAmount,
             'remaining_amount' => $remainingAmount,
             'financial_summary' => $financialSummary,
@@ -347,13 +354,14 @@ class ParentMonthlySettlementService
             'kindergarten' => $this->componentBreakdown($statement, $financialSummary, PaymentComponent::KINDERGARTEN),
             'issues' => $statement->issues ?? [],
             'can_pay' => $statement->isClosed() && $remainingAmount > 0 && empty($statement->issues ?? []),
-            'details' => $this->buildDetails($statement, $discountPercent, $remainingAmount, $paidAmount, $periods),
+            'details' => $this->buildDetails($statement, $discountPercent, $discountAmount, $remainingAmount, $paidAmount, $periods),
         ];
     }
 
     private function buildDetails(
         MonthlyPaymentStatement $statement,
         int $discountPercent,
+        int $discountAmount,
         int $remainingAmount,
         int $paidAmount,
         array $periods
@@ -385,6 +393,17 @@ class ParentMonthlySettlementService
             ];
         })->values();
 
+        $isSplit = $statement->usesSplitPaymentModel();
+        $totalPayable = (int) $statement->total_payable;
+        $previousBalance = (int) $statement->previous_balance;
+        $overpaymentAmount = SettlementAmountPresenter::overpaymentAmount($totalPayable);
+        $alwaysShowLabels = [
+            'Havi előírás',
+            'Aktuális havi fizetendő',
+            'Fizetendő összesen',
+            'Fennmaradó összeg',
+        ];
+
         $breakdown = collect([
             [
                 'label' => 'Tervezett étkezési napok',
@@ -398,34 +417,71 @@ class ParentMonthlySettlementService
                 'emphasis' => false,
                 'display_as_count' => true,
             ],
+            ...($isSplit ? [
+                [
+                    'label' => 'Zsárica rész',
+                    'amount' => (int) $statement->foundation_invoiceable_amount,
+                    'emphasis' => false,
+                ],
+                [
+                    'label' => 'Óvodai rész',
+                    'amount' => (int) $statement->kindergarten_invoiceable_amount,
+                    'emphasis' => false,
+                ],
+                [
+                    'label' => $discountPercent > 0 ? $discountPercent.'%-os kedvezmény az óvodai részen' : 'Óvodai kedvezmény',
+                    'amount' => -1 * (int) $statement->kindergarten_discount_amount,
+                    'emphasis' => true,
+                ],
+                [
+                    'label' => $periods['credit_period_label'].'i lemondások jóváírása',
+                    'amount' => -1 * (int) $statement->previous_cancellation_credit,
+                    'emphasis' => false,
+                ],
+            ] : [
+                [
+                    'label' => $periods['meal_period_label'].'i étkezési díj (következő havi)',
+                    'amount' => (int) $statement->meal_amount,
+                    'emphasis' => false,
+                ],
+                // REGRESSZIÓ-JAVÍTÁS (2026-09): a nem-split (hagyományos)
+                // elszámolási modellnél korábban NEM jelent meg a kedvezmény
+                // mértéke/összege önálló sorként a bontásban - csak a split
+                // (Zsárica/Óvoda) modellnél volt meg az analóg "{X}%-os
+                // kedvezmény az óvodai részen" sor. A szülőnek látnia kell,
+                // hogy miért kevesebb a fizetendő a kedvezmény miatt ebben a
+                // modellben is - a $discountAmount-ot már korábban is
+                // kiszámoltuk (ld. a hívó metódus 'discount_amount' mezőjét),
+                // csak eddig nem jelent meg a felépítés-bontásban.
+                [
+                    'label' => $discountPercent > 0 ? $discountPercent.'%-os kedvezmény' : 'Kedvezmény',
+                    'amount' => -1 * $discountAmount,
+                    'emphasis' => false,
+                ],
+                [
+                    'label' => $periods['credit_period_label'].'i lemondások jóváírása',
+                    'amount' => -1 * (int) $statement->previous_cancellation_credit,
+                    'emphasis' => false,
+                ],
+                [
+                    'label' => 'Egyéb korrekció (a havi díjat módosítja)',
+                    'amount' => (int) $statement->billing_adjustment_amount,
+                    'emphasis' => false,
+                ],
+                [
+                    'label' => 'Aktuális havi fizetendő',
+                    'amount' => (int) $statement->invoiceable_amount,
+                    'emphasis' => true,
+                ],
+            ]),
             [
-                'label' => 'Zsárica rész',
-                'amount' => (int) $statement->foundation_invoiceable_amount,
+                'label' => SettlementAmountPresenter::previousBalanceLabel($previousBalance),
+                'amount' => SettlementAmountPresenter::previousBalanceDisplayAmount($previousBalance),
                 'emphasis' => false,
             ],
             [
-                'label' => 'Óvodai rész',
-                'amount' => (int) $statement->kindergarten_invoiceable_amount,
-                'emphasis' => false,
-            ],
-            [
-                'label' => $discountPercent > 0 ? $discountPercent.'%-os kedvezmény az óvodai részen' : 'Óvodai kedvezmény',
-                'amount' => -1 * (int) $statement->kindergarten_discount_amount,
-                'emphasis' => true,
-            ],
-            [
-                'label' => $periods['credit_period_label'].'i lemondások jóváírása',
-                'amount' => -1 * (int) $statement->previous_cancellation_credit,
-                'emphasis' => false,
-            ],
-            [
-                'label' => 'Korábbi egyenleg',
-                'amount' => (int) $statement->previous_balance,
-                'emphasis' => false,
-            ],
-            [
-                'label' => 'Tényleges fizetendő',
-                'amount' => (int) $statement->total_payable,
+                'label' => 'Fizetendő összesen',
+                'amount' => SettlementAmountPresenter::payableDisplayAmount($totalPayable),
                 'emphasis' => true,
             ],
             [
@@ -438,14 +494,17 @@ class ParentMonthlySettlementService
                 'amount' => $remainingAmount,
                 'emphasis' => true,
             ],
-        ])->reject(function (array $row) {
+            [
+                'label' => 'Fennmaradó túlfizetés',
+                'amount' => $overpaymentAmount,
+                'emphasis' => true,
+            ],
+        ])->reject(function (array $row) use ($alwaysShowLabels) {
             if (($row['display_as_count'] ?? false) === true) {
                 return false;
             }
 
-            return $row['label'] !== 'Havi előírás'
-                && $row['label'] !== 'Tényleges fizetendő'
-                && $row['label'] !== 'Fennmaradó összeg'
+            return ! in_array($row['label'], $alwaysShowLabels, true)
                 && $row['amount'] === 0;
         })->values();
 
@@ -459,6 +518,9 @@ class ParentMonthlySettlementService
     {
         $statementCards = $childCards->filter(fn (array $card) => $card['has_statement']);
         $totalPayable = (int) $statementCards->sum('current_total');
+        $totalPayableDisplay = SettlementAmountPresenter::payableDisplayAmount($totalPayable);
+        $overpaymentTotal = SettlementAmountPresenter::overpaymentAmount($totalPayable);
+        $hasSplitStatements = $statementCards->contains(fn (array $card) => $card['is_split'] ?? false);
         $paidTotal = (int) $statementCards->sum('paid_amount');
         $remainingTotal = (int) max(0, $statementCards->sum('remaining_amount'));
         $foundationTotal = (int) $statementCards->sum(fn (array $card) => $card['foundation']['current_total']);
@@ -494,6 +556,9 @@ class ParentMonthlySettlementService
             'status' => $this->summaryStatusMeta($statementCards, $totalPayable, $paidTotal, $remainingTotal, $hasIssues, $allClosed),
             'children_count' => $statementCards->count(),
             'total_payable' => $totalPayable,
+            'total_payable_display' => $totalPayableDisplay,
+            'overpayment_total' => $overpaymentTotal,
+            'has_split_statements' => $hasSplitStatements,
             'paid_total' => $paidTotal,
             'remaining_total' => $remainingTotal,
             'foundation_total' => $foundationTotal,
@@ -678,7 +743,7 @@ class ParentMonthlySettlementService
             'credit_period_label' => $creditPeriod->locale('hu')->isoFormat('YYYY. MMMM'),
             'calculation_help' => [
                 'title' => 'Hogyan számoljuk a havi fizetendő összeget?',
-                'body' => 'Az adott fizetési hónapban mindig a következő étkezési hónap tervezett napjait számoljuk, és ebből külön jóváírjuk az előző hónap szabályosan jóváírható lemondásait. A Zsárica és az óvodai rész külön összegként, külön egyenleggel jelenik meg.',
+                'body' => 'Az adott fizetési hónapban mindig a következő étkezési hónap tervezett napjait számoljuk, és ebből külön jóváírjuk az előző hónap szabályosan jóváírható lemondásait. Az így kapott aktuális havi fizetendőhöz adódik hozzá (vagy vonódik le) a korábbi tartozás vagy túlfizetés, valamint az esetleges külön befizetések és korrekciók.',
                 'meal_hint' => 'Most a '.$mealPeriod->locale('hu')->isoFormat('YYYY. MMMM').'i étkezési időszak kerül elszámolásra.',
                 'credit_hint' => 'Az elszámolásban a '.$creditPeriod->locale('hu')->isoFormat('YYYY. MMMM').'i jóváírható lemondások kerülnek levonásra.',
             ],

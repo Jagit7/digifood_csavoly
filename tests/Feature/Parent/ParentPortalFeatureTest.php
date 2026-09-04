@@ -186,33 +186,59 @@ class ParentPortalFeatureTest extends TestCase
         $child = $this->createChild($institution->id, 'Sorrend Gyermek');
         $child->guardians()->attach($guardian->id, ['created_at' => now(), 'updated_at' => now()]);
 
-        // Szándékosan a legtávolabbi hónaptól a legközelebbiig hozzuk létre
-        // a bejegyzéseket - a lekérdezés (desc year, desc month) így is a
-        // legtávolabbi hónapot adná vissza elsőként, ha a globális,
-        // dátum szerinti újrarendezés nem működne helyesen.
-        $months = [10, 9, 8, 7];
-        $dates = [
-            10 => '2026-10-01',
-            9 => '2026-09-01',
-            8 => '2026-08-03',
-            7 => '2026-07-28',
-        ];
+        // REGRESSZIÓ-VIZSGÁLAT EREDMÉNYE (2026-09, második kör): a valós
+        // dashboard-lekérdezés (ParentDashboardController::loadStatements())
+        // SZÁNDÉKOSAN csak a mai naptól legfeljebb 1 hónappal előre eső
+        // MonthlyPaymentStatement-eket tölti be ($to = $today->addMonths(1)
+        // ->endOfMonth()) - ez üzletileg indokolt, mert a rendszerben
+        // MonthlyPaymentStatement sorok a valóságban is csak a ténylegesen
+        // aktuális/következő hónapra jönnek létre (a
+        // PaymentObligationCalculatorService havonta, az adott hónaphoz
+        // fut le - 3 hónappal előre eső, valódi napi bontású statement a
+        // gyakorlatban sosem létezik). Az eredeti fixture 4, egymástól 1-3
+        // hónapra eső hónapot (2026-07..2026-10) hozott létre - ebből a
+        // 2026-09 és 2026-10 az ablakon KÍVÜL esik, ezért ezek sosem
+        // kerültek be a lekérdezésbe, FÜGGETLENÜL a rendezési logikától
+        // (ez okozta, hogy a válasz csak 2, nem 4 elemet tartalmazott).
+        // A javított fixture az ablakon BELÜL marad (aktuális hónap +
+        // következő hónap), és a rendezési logikát (Collection::sortBy()
+        // két paraméteres komparátorral, a lapított napok globális listáján)
+        // azzal teszteli ugyanolyan szigorral, hogy EGY hónapon (július)
+        // belül is több, szándékosan összekevert sorrendben létrehozott
+        // napot használ, a legtávolabbi (augusztusi) hónaptól kezdve.
+        $augustStatement = MonthlyPaymentStatement::create([
+            'institution_id' => $institution->id,
+            'child_id' => $child->id,
+            'year' => 2026,
+            'month' => 8,
+            'meal_amount' => 1000,
+            'invoiceable_amount' => 1000,
+            'total_payable' => 1000,
+            'status' => MonthlyPaymentStatement::STATUS_DRAFT,
+        ]);
+        MonthlyPaymentDay::create([
+            'monthly_payment_statement_id' => $augustStatement->id,
+            'date' => '2026-08-03',
+            'status' => MonthlyPaymentDay::STATUS_PAY,
+            'original_daily_price' => 1000,
+            'discount_percent' => 0,
+            'payable_amount' => 1000,
+        ]);
 
-        foreach ($months as $month) {
-            $statement = MonthlyPaymentStatement::create([
-                'institution_id' => $institution->id,
-                'child_id' => $child->id,
-                'year' => 2026,
-                'month' => $month,
-                'meal_amount' => 1000,
-                'invoiceable_amount' => 1000,
-                'total_payable' => 1000,
-                'status' => MonthlyPaymentStatement::STATUS_DRAFT,
-            ]);
-
+        $julyStatement = MonthlyPaymentStatement::create([
+            'institution_id' => $institution->id,
+            'child_id' => $child->id,
+            'year' => 2026,
+            'month' => 7,
+            'meal_amount' => 3000,
+            'invoiceable_amount' => 3000,
+            'total_payable' => 3000,
+            'status' => MonthlyPaymentStatement::STATUS_DRAFT,
+        ]);
+        foreach (['2026-07-31', '2026-07-26', '2026-07-28'] as $date) {
             MonthlyPaymentDay::create([
-                'monthly_payment_statement_id' => $statement->id,
-                'date' => $dates[$month],
+                'monthly_payment_statement_id' => $julyStatement->id,
+                'date' => $date,
                 'status' => MonthlyPaymentDay::STATUS_PAY,
                 'original_daily_price' => 1000,
                 'discount_percent' => 0,
@@ -228,10 +254,10 @@ class ParentPortalFeatureTest extends TestCase
         $orderedDateLabels = $timeline->pluck('date_label')->values()->all();
 
         $this->assertSame([
+            CarbonImmutable::parse('2026-07-26')->locale('hu')->isoFormat('MMMM D. dddd'),
             CarbonImmutable::parse('2026-07-28')->locale('hu')->isoFormat('MMMM D. dddd'),
+            CarbonImmutable::parse('2026-07-31')->locale('hu')->isoFormat('MMMM D. dddd'),
             CarbonImmutable::parse('2026-08-03')->locale('hu')->isoFormat('MMMM D. dddd'),
-            CarbonImmutable::parse('2026-09-01')->locale('hu')->isoFormat('MMMM D. dddd'),
-            CarbonImmutable::parse('2026-10-01')->locale('hu')->isoFormat('MMMM D. dddd'),
         ], $orderedDateLabels);
     }
 
@@ -751,6 +777,9 @@ class ParentPortalFeatureTest extends TestCase
             'billing_postal_code' => '',
             'billing_city' => '',
             'billing_address' => '',
+            // Szándékosan küldjük el ezt a mezőt is - ld. lejjebb az
+            // assertNull(tax_number) mellett lévő kommentet: az elvárt
+            // viselkedés az, hogy az alkalmazás figyelmen kívül hagyja.
             'tax_number' => '12345678-1-42',
         ]);
 
@@ -777,7 +806,23 @@ class ParentPortalFeatureTest extends TestCase
         $this->assertTrue((bool) $billingProfile->active);
         $this->assertSame('guardian', $billingProfile->payer_type);
         $this->assertSame('Kovács Anna', $billingProfile->billing_name);
-        $this->assertSame('12345678-1-42', $billingProfile->tax_number);
+        // REGRESSZIÓ-VIZSGÁLAT EREDMÉNYE (2026-09, második kör): a
+        // ParentAccountController::updateLegacy() (a PUT /fiokom route
+        // ténylegesen ezt hívja) validátora és a
+        // ParentAccountService::updateBillingData() SZÁNDÉKOSAN NEM veszi át
+        // a 'tax_number' mezőt a kérésből - ld. mindkét helyen a kommentet:
+        // "A számlázási nevet és az adószámot a szülő a szülői felületen nem
+        // módosíthatja". Ezt a valódi űrlap (resources/views/parent/account/
+        // edit.blade.php, 715-737. sor) is megerősíti: az adószám mező ott
+        // 'readonly disabled', explicit "Az adószámot a szülői felületen nem
+        // lehet módosítani vagy megadni" szöveggel. Ez tehát RÉGÓTA fennálló,
+        // szándékos, dokumentált üzleti szabály (a nézet fájl 2026 júliusi,
+        // jóval a mostani javítási kör előtti) - NEM Phase 1 regresszió és
+        // NEM production hiba. A teszt korábban tévesen azt várta, hogy a
+        // szülő beállíthatja az adószámot; a javított elvárás azt igazolja,
+        // hogy a mező a kérésben szerepel, de az alkalmazás helyesen
+        // figyelmen kívül hagyja - tehát tax_number NULL marad.
+        $this->assertNull($billingProfile->tax_number);
         $this->assertSame('2092', $billingProfile->postal_code);
         $this->assertSame('Budakeszi', $billingProfile->city);
         $this->assertSame('Fő utca 12 2 5', $billingProfile->address);
@@ -1071,9 +1116,19 @@ class ParentPortalFeatureTest extends TestCase
         $page = $this->actingAs($user)->get($this->parentUrl('/havi-elszamolasok?month=2026-07'));
         preg_match('/name="payment_intent_key" value="([^"]+)"/', $page->getContent(), $matches);
 
+        // REGRESSZIÓ-VIZSGÁLAT EREDMÉNYE (2026-09): a ParentMonthlySettlementController::store()
+        // 'data_processing_consent' => ['accepted'] validációt ír elő (ld. a
+        // resources/views/parent/partials/data-processing-consent-checkbox.blade.php
+        // valódi, CIB Bank által előírt kötelező checkboxát, amit a fizetési űrlap
+        // ténylegesen megjelenít) - ez a validáció HELYES és ÉLES környezetben is
+        // érvényesül, csak ez a régi teszt-fixture nem küldte el a mezőt, ezért a
+        // teszt fizetés minden esetben validációs hibával, 0 létrehozott payment
+        // rekorddal futott le. A production validáció változatlan, csak a teszt
+        // payload lett kiegészítve a valós űrlapon is kötelező mezővel.
         $response = $this->actingAs($user)->post($this->parentUrl('/havi-elszamolasok/fizetes'), [
             'month' => '2026-07',
             'payment_intent_key' => $matches[1] ?? '',
+            'data_processing_consent' => '1',
         ]);
 
         $response->assertRedirect(route('parent.monthly-settlements.index', ['month' => '2026-07']));
@@ -1151,9 +1206,13 @@ class ParentPortalFeatureTest extends TestCase
         $page = $this->actingAs($user)->get($this->parentUrl('/havi-elszamolasok?month=2026-07'));
         preg_match('/name="payment_intent_key" value="([^"]+)"/', $page->getContent(), $matches);
 
+        // Ld. a fenti test_parent_can_prepare_combined_payment_for_multiple_children()
+        // komment: a 'data_processing_consent' mező a valódi űrlapon is kötelező,
+        // a régi fixture nem küldte - emiatt jött létre 0 payment helyett.
         $this->actingAs($user)->post($this->parentUrl('/havi-elszamolasok/fizetes'), [
             'month' => '2026-07',
             'payment_intent_key' => $matches[1] ?? '',
+            'data_processing_consent' => '1',
         ]);
 
         $payment = ParentMonthlySettlementPayment::query()->first();
@@ -1340,9 +1399,12 @@ class ParentPortalFeatureTest extends TestCase
 
         $page = $this->actingAs($user)->get($this->parentUrl('/havi-elszamolasok?month=2026-07'));
         preg_match('/name="payment_intent_key" value="([^"]+)"/', $page->getContent(), $matches);
+        // Ld. a fenti test_parent_can_prepare_combined_payment_for_multiple_children()
+        // komment: a 'data_processing_consent' mező a valódi űrlapon is kötelező.
         $payload = [
             'month' => '2026-07',
             'payment_intent_key' => $matches[1] ?? '',
+            'data_processing_consent' => '1',
         ];
 
         $this->actingAs($user)->post($this->parentUrl('/havi-elszamolasok/fizetes'), $payload);
@@ -1991,7 +2053,14 @@ class ParentPortalFeatureTest extends TestCase
 
     public function test_parent_can_download_own_invoice_document_but_not_foreign_one(): void
     {
-        Storage::fake('public');
+        // FONTOS (2026-09-es javítás): a számla-PDF-ek a 'local' (privát)
+        // lemezen vannak tárolva, NEM a 'public' lemezen - ld.
+        // ParentInvoicePageService::downloadInvoiceDocument() és
+        // InstitutionInvoiceService::hasUsableInvoicePdf() kommentjeit. Ez a
+        // teszt korábban a (hibás) 'public' lemezt hamisította, ami a
+        // letöltési hiba miatt valójában soha nem futott le ténylegesen a
+        // helyes kódúton - most a valódi 'local' lemezt használja.
+        Storage::fake('local');
 
         [$user, $institution, $guardian] = $this->createParentContext();
 
@@ -2011,7 +2080,10 @@ class ParentPortalFeatureTest extends TestCase
             'closed_at' => now(),
         ]);
 
-        Storage::disk('public')->put('invoices/own-invoice.pdf', 'pdf-content');
+        // A tartalomnak érvényes PDF-fejléccel ("%PDF-") kell kezdődnie,
+        // mert a hasUsableInvoicePdf()/hasUsableLocalPdfPath() ellenőrzés
+        // ezt is megköveteli, nem csak a fájl létezését.
+        Storage::disk('local')->put('invoices/manual/'.$institution->id.'/OWN-PDF-1.pdf', "%PDF-1.4\npdf-content");
 
         $ownInvoice = $this->createInstitutionInvoice([
             'institution_id' => $institution->id,
@@ -2033,7 +2105,7 @@ class ParentPortalFeatureTest extends TestCase
             'billing_postcode' => '7621',
             'billing_city' => 'Pecs',
             'billing_address' => 'Fo utca 1.',
-            'invoice_pdf_path' => 'invoices/own-invoice.pdf',
+            'invoice_pdf_path' => 'invoices/manual/'.$institution->id.'/OWN-PDF-1.pdf',
             'created_by' => $user->id,
         ]);
 

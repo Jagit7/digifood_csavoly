@@ -144,7 +144,12 @@ class InstitutionInvoiceController extends Controller
                         'Étkezés: '.$this->periodHelper->fromStatement($statement)['meal_period_label'],
                         'Jóváírás: '.$this->periodHelper->fromStatement($statement)['credit_period_label'],
                         $child?->educational_identifier,
-                        number_format($statement->total_payable, 0, ',', ' ').' Ft',
+                        // A ténylegesen számlázható (aktuális havi) összeg -
+                        // ld. InstitutionInvoiceService::store() kommentjét:
+                        // a total_payable a korábbi egyenleget is
+                        // tartalmazná, ami a most kiállítandó számlának NEM
+                        // része.
+                        number_format($statement->invoiceable_amount, 0, ',', ' ').' Ft',
                     ])->filter()->implode(' – '),
                 ];
             })->values(),

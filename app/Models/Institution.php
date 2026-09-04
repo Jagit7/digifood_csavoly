@@ -228,4 +228,19 @@ class Institution extends Model
     {
         return $this->hasMany(DailyAttendanceEmailLog::class);
     }
+
+    public function dailyHeadcountEmailGroupSettings()
+    {
+        return $this->hasMany(InstitutionDailyHeadcountEmailGroupSetting::class);
+    }
+
+    public function dailyHeadcountEmailRecipients()
+    {
+        return $this->hasMany(InstitutionDailyHeadcountEmailRecipient::class);
+    }
+
+    public function dailyHeadcountEmailLogs()
+    {
+        return $this->hasMany(DailyHeadcountEmailLog::class);
+    }
 }

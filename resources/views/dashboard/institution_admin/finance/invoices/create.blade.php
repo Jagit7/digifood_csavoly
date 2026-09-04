@@ -157,6 +157,15 @@
                     <div class="col-xl-4 mb-3">
                         <label class="form-label">Bruttó összeg</label>
                         <input id="preview_gross_amount" type="text" class="form-control" value="{{ isset($preview['statement']['gross_amount']) ? number_format($preview['statement']['gross_amount'], 0, ',', ' ') . ' Ft' : '' }}" readonly>
+                        <div class="form-text">Ez kizárólag az AKTUÁLIS havi, ténylegesen számlázható összeg - korábbi tartozás/túlfizetés nem kerül bele.</div>
+                    </div>
+                    @php
+                        $previewPreviousBalance = (int) ($preview['statement']['previous_balance'] ?? 0);
+                    @endphp
+                    <div id="preview_previous_balance_wrapper" class="col-xl-4 mb-3 {{ $previewPreviousBalance === 0 ? 'd-none' : '' }}">
+                        <label class="form-label" id="preview_previous_balance_label">{{ $preview['statement']['previous_balance_label'] ?? 'Korábbi egyenleg' }}</label>
+                        <input id="preview_previous_balance" type="text" class="form-control bg-light" value="{{ $previewPreviousBalance !== 0 ? number_format($preview['statement']['previous_balance_display_amount'] ?? 0, 0, ',', ' ') . ' Ft' : '' }}" readonly>
+                        <div class="form-text text-warning">Csak tájékoztató adat - NEM kerül a most kiállított számlára. Kérjük, korábbi tartozását vagy túlfizetését személyesen rendezze az önkormányzatnál.</div>
                     </div>
                     <div class="col-xl-4 mb-3">
                         <label class="form-label">Kiállítás dátuma</label>
@@ -331,6 +340,23 @@
                 setValue('preview_meal_period_label', statement.meal_period_label);
                 setValue('preview_credit_period_label', statement.credit_period_label);
                 setValue('preview_gross_amount', formatAmount(statement.gross_amount));
+
+                const previousBalance = Number(statement.previous_balance || 0);
+                const previousBalanceWrapper = document.getElementById('preview_previous_balance_wrapper');
+                const previousBalanceLabel = document.getElementById('preview_previous_balance_label');
+                if (previousBalanceWrapper) {
+                    if (previousBalance !== 0) {
+                        previousBalanceWrapper.classList.remove('d-none');
+                        if (previousBalanceLabel) {
+                            previousBalanceLabel.textContent = statement.previous_balance_label || 'Korábbi egyenleg';
+                        }
+                        setValue('preview_previous_balance', formatAmount(statement.previous_balance_display_amount ?? Math.abs(previousBalance)));
+                    } else {
+                        previousBalanceWrapper.classList.add('d-none');
+                        setValue('preview_previous_balance', '');
+                    }
+                }
+
                 setValue('preview_issue_date', statement.issue_date);
                 setValue('preview_fulfillment_date', statement.fulfillment_date);
                 setValue('fulfillment_date', statement.fulfillment_date);
@@ -354,8 +380,12 @@
             }
 
             function resetPreview() {
-                ['preview_child_name', 'preview_guardian_name', 'preview_month_label', 'preview_meal_period_label', 'preview_credit_period_label', 'preview_gross_amount', 'preview_issue_date', 'preview_fulfillment_date', 'fulfillment_date', 'due_date', 'due_date_display', 'customer_name', 'customer_email', 'customer_tax_number', 'billing_postcode', 'billing_city', 'billing_address', 'preview_currency', 'preview_item_name']
+                ['preview_child_name', 'preview_guardian_name', 'preview_month_label', 'preview_meal_period_label', 'preview_credit_period_label', 'preview_gross_amount', 'preview_previous_balance', 'preview_issue_date', 'preview_fulfillment_date', 'fulfillment_date', 'due_date', 'due_date_display', 'customer_name', 'customer_email', 'customer_tax_number', 'billing_postcode', 'billing_city', 'billing_address', 'preview_currency', 'preview_item_name']
                     .forEach(function (id) { setValue(id, ''); });
+                const previousBalanceWrapper = document.getElementById('preview_previous_balance_wrapper');
+                if (previousBalanceWrapper) {
+                    previousBalanceWrapper.classList.add('d-none');
+                }
                 setErrors([]);
                 submitButton.disabled = true;
             }

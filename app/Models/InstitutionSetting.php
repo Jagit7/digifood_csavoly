@@ -36,6 +36,8 @@ class InstitutionSetting extends Model
         'kitchen_notification_emails',
         'daily_attendance_email_enabled',
         'daily_attendance_email_send_time',
+        'daily_headcount_email_enabled',
+        'daily_headcount_email_send_time',
         'payment_notification_enabled',
         'payment_notification_day',
         'payment_notification_subject',
@@ -94,6 +96,7 @@ class InstitutionSetting extends Model
         'send_kitchen_email' => 'boolean',
         'kitchen_notification_emails' => 'array',
         'daily_attendance_email_enabled' => 'boolean',
+        'daily_headcount_email_enabled' => 'boolean',
         'payment_notification_enabled' => 'boolean',
         'payment_notification_day' => 'integer',
         'payment_notification_subject' => 'string',
@@ -144,6 +147,8 @@ class InstitutionSetting extends Model
             'kitchen_notification_emails' => [],
             'daily_attendance_email_enabled' => false,
             'daily_attendance_email_send_time' => '07:30:00',
+            'daily_headcount_email_enabled' => false,
+            'daily_headcount_email_send_time' => '07:30:00',
             'payment_notification_enabled' => false,
             'payment_notification_day' => 5,
             'payment_notification_subject' => null,
@@ -379,6 +384,11 @@ class InstitutionSetting extends Model
     public function dailyAttendanceEmailSendTimeLabel(): string
     {
         return substr((string) ($this->daily_attendance_email_send_time ?: '07:30:00'), 0, 5);
+    }
+
+    public function dailyHeadcountEmailSendTimeLabel(): string
+    {
+        return substr((string) ($this->daily_headcount_email_send_time ?: '07:30:00'), 0, 5);
     }
 
     private static function normalizeProviderOptions(mixed $options): array

@@ -864,6 +864,533 @@ class InstitutionInvoiceFeatureTest extends TestCase
         $this->assertSame(InstitutionPayment::STATUS_COMPLETED, $paymentB->status);
     }
 
+    /**
+     * FONTOS PÉNZÜGYI SZABÁLY (2026-09-es javítás) regressziós tesztje: a
+     * kiállított számla bruttó összege KIZÁRÓLAG az aktuális havi
+     * (invoiceable_amount) rész lehet, a korábbi tartozás (previous_balance)
+     * SOSEM kerülhet bele - még akkor sem, ha a total_payable (ami a kettő
+     * összege) nagyobb. Ld. PaymentObligationCalculatorService::
+     * refreshStatementTotals() és InstitutionInvoiceService::store().
+     */
+    public function test_invoice_gross_amount_excludes_prior_debt_from_total_payable(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF30');
+
+        // Az elszámolás aktuális havi (számlázandó) része 10 000 Ft, de a
+        // total_payable (10 000 + 5 000 korábbi tartozás) 15 000 Ft.
+        $statement->forceFill([
+            'invoiceable_amount' => 10000,
+            'previous_balance' => 5000,
+            'total_payable' => 15000,
+        ])->save();
+
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_MANUAL,
+            ])
+        );
+
+        $invoice = app(InstitutionInvoiceService::class)->store($institution, $user, [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_MANUAL,
+            'payment_method' => 'cash',
+            'due_date' => '2026-07-20',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => null,
+            'customer_tax_number' => null,
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => null,
+        ]);
+
+        $this->assertSame(10000, $invoice->gross_amount);
+        $this->assertSame(10000, $invoice->net_amount);
+        $this->assertNotSame(15000, $invoice->gross_amount);
+    }
+
+    /**
+     * Ugyanaz mint fent, de korábbi TÚLFIZETÉSSEL (negatív previous_balance):
+     * a számlázott összegnek ekkor is pontosan az aktuális havi résznek kell
+     * lennie, nem a (kisebb) total_payable-nek.
+     */
+    public function test_invoice_gross_amount_excludes_prior_overpayment_from_total_payable(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF31');
+
+        // Aktuális havi rész 10 000 Ft, de 2 000 Ft korábbi túlfizetés miatt
+        // a total_payable csak 8 000 Ft.
+        $statement->forceFill([
+            'invoiceable_amount' => 10000,
+            'previous_balance' => -2000,
+            'total_payable' => 8000,
+        ])->save();
+
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_MANUAL,
+            ])
+        );
+
+        $invoice = app(InstitutionInvoiceService::class)->store($institution, $user, [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_MANUAL,
+            'payment_method' => 'cash',
+            'due_date' => '2026-07-20',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => null,
+            'customer_tax_number' => null,
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => null,
+        ]);
+
+        $this->assertSame(10000, $invoice->gross_amount);
+        $this->assertNotSame(8000, $invoice->gross_amount);
+    }
+
+    /**
+     * 0 Ft (vagy negatív) AKTUÁLIS HAVI (invoiceable_amount) összegre nem
+     * lehet számlát kiállítani - még akkor sem, ha a total_payable pozitív
+     * (mert pl. korábbi tartozás miatt), mivel a korábbi tartozást nem
+     * szabad az újonnan kiállított számlába belefoglalni.
+     */
+    public function test_invoice_cannot_be_created_when_invoiceable_amount_is_zero_even_if_total_payable_is_positive(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF32');
+
+        $statement->forceFill([
+            'invoiceable_amount' => 0,
+            'previous_balance' => 5000,
+            'total_payable' => 5000,
+        ])->save();
+
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_MANUAL,
+            ])
+        );
+
+        $this->expectException(HttpResponseException::class);
+
+        try {
+            app(InstitutionInvoiceService::class)->store($institution, $user, [
+                'monthly_payment_statement_id' => $statement->id,
+                'provider' => InstitutionInvoice::PROVIDER_MANUAL,
+                'payment_method' => 'cash',
+                'due_date' => '2026-07-20',
+                'fulfillment_date' => '2026-07-31',
+                'customer_name' => 'Szulo Payer',
+                'customer_email' => null,
+                'customer_tax_number' => null,
+                'billing_postcode' => '1111',
+                'billing_city' => 'Budapest',
+                'billing_address' => 'Fo utca 1.',
+                'note' => null,
+            ]);
+        } finally {
+            $this->assertSame(0, InstitutionInvoice::query()->count());
+        }
+    }
+
+    /**
+     * A preview()/buildPreview() adja a "Számla elkészítése" felület (és a
+     * Phase 2-es szülői felület) alapját - az onnan visszakapott
+     * gross_amount-nak szintén az invoiceable_amount-ot kell tükröznie, a
+     * korábbi egyenleget pedig KÜLÖN, informatív mezőkben kell visszaadnia.
+     */
+    public function test_preview_separates_previous_balance_from_invoiceable_gross_amount(): void
+    {
+        [$institution, , $statement] = $this->seedStatementWithBillingProfile('INVF33');
+
+        $statement->forceFill([
+            'invoiceable_amount' => 10000,
+            'previous_balance' => 5000,
+            'total_payable' => 15000,
+        ])->save();
+
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_MANUAL,
+            ])
+        );
+
+        $preview = app(InstitutionInvoiceService::class)->preview(
+            $institution,
+            $statement,
+            InstitutionInvoice::PROVIDER_MANUAL
+        );
+
+        $this->assertTrue($preview['available']);
+        $this->assertSame(10000, $preview['statement']['gross_amount']);
+        $this->assertSame(5000, $preview['statement']['previous_balance']);
+        $this->assertSame(15000, $preview['statement']['total_payable_with_previous_balance']);
+    }
+
+    /**
+     * Duplikáció/idempotencia (11. szakasz): egy MÁSODIK store() hívás
+     * ugyanarra a kimutatásra - miután az első ténylegesen sikeresen
+     * létrehozott egy számlát - blokkolva legyen, és NE hozzon létre második
+     * számlát. (A test_duplicate_invoice_for_same_statement_is_blocked teszt
+     * egy kézzel odarakott meglévő rekorddal szimulálja ugyanezt - ez a
+     * teszt a valós store()->store() útvonalat futtatja végig kétszer.)
+     */
+    public function test_second_store_call_for_same_statement_does_not_create_a_second_invoice(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF34');
+
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_MANUAL,
+            ])
+        );
+
+        $payload = [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_MANUAL,
+            'payment_method' => 'cash',
+            'due_date' => '2026-07-20',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => null,
+            'customer_tax_number' => null,
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => null,
+        ];
+
+        app(InstitutionInvoiceService::class)->store($institution, $user, $payload);
+        $this->assertSame(1, InstitutionInvoice::query()->count());
+
+        $this->expectException(HttpResponseException::class);
+
+        try {
+            app(InstitutionInvoiceService::class)->store($institution, $user, $payload);
+        } finally {
+            $this->assertSame(1, InstitutionInvoice::query()->count());
+        }
+    }
+
+    private function storeSzamlazzHuSettings(Institution $institution): void
+    {
+        InstitutionSetting::updateOrCreate(
+            ['institution_id' => $institution->id],
+            array_merge(InstitutionSetting::defaults(), [
+                'invoicing_enabled' => true,
+                'invoicing_provider' => InstitutionSetting::INVOICING_PROVIDER_SZAMLAZZ_HU,
+                'szamlazz_hu_agent_key' => 'szamlazz-test-agent-key',
+                'szamlazz_hu_invoice_prefix' => 'ETK',
+            ])
+        );
+
+        $this->forgetCachedInstitutionSettingRelation($institution);
+    }
+
+    private function fakeSzamlazzHuSuccessXml(string $invoiceNumber, string $pdfContent = "%PDF-1.4\nszamlazz pdf"): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8"?><xmlszamlavalasz>'
+            .'<sikeres>true</sikeres>'
+            .'<szamlaszam>'.$invoiceNumber.'</szamlaszam>'
+            .'<pdf>'.base64_encode($pdfContent).'</pdf>'
+            .'</xmlszamlavalasz>';
+    }
+
+    private function fakeSzamlazzHuErrorXml(string $message = 'Teszt hiba a Számlázz.hu válaszában', string $code = '57'): string
+    {
+        return '<?xml version="1.0" encoding="UTF-8"?><xmlszamlavalasz>'
+            .'<sikeres>false</sikeres>'
+            .'<hibakod>'.$code.'</hibakod>'
+            .'<hibauzenet>'.$message.'</hibauzenet>'
+            .'</xmlszamlavalasz>';
+    }
+
+    public function test_szamlazz_hu_invoice_can_be_created_with_current_month_amount_only_and_pdf_is_stored_locally(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF40');
+        $this->storeSzamlazzHuSettings($institution);
+        Storage::fake('local');
+
+        $statement->forceFill([
+            'invoiceable_amount' => 10000,
+            'previous_balance' => 5000,
+            'total_payable' => 15000,
+        ])->save();
+
+        Http::fake(function (Request $request) {
+            if ($request->url() === 'https://www.szamlazz.hu/szamla/') {
+                return Http::response(
+                    $this->fakeSzamlazzHuSuccessXml('ETK-2026-0001'),
+                    200,
+                    ['Content-Type' => 'application/xml']
+                );
+            }
+
+            return Http::response('unexpected request', 500);
+        });
+
+        $request = $this->makeStoreRequest($user, [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            'payment_method' => 'bank_transfer',
+            'due_date' => '2026-08-08',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => 'szulo@example.test',
+            'customer_tax_number' => '12345678-1-42',
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => 'Szamlazz.hu teszt',
+        ]);
+
+        $this->actingAs($user);
+        app(InstitutionInvoiceController::class)->store($request);
+
+        $invoice = InstitutionInvoice::query()->firstOrFail();
+
+        $this->assertSame(InstitutionInvoice::STATUS_ISSUED, $invoice->status);
+        $this->assertSame(10000, $invoice->gross_amount);
+        $this->assertNotSame(15000, $invoice->gross_amount);
+        $this->assertSame('ETK-2026-0001', $invoice->invoice_number);
+        $this->assertSame('ETK-2026-0001', $invoice->provider_invoice_id);
+        $this->assertSame('invoices/szamlazz_hu/'.$institution->id.'/ETK-2026-0001.pdf', $invoice->invoice_pdf_path);
+        Storage::disk('local')->assertExists($invoice->invoice_pdf_path);
+        $this->assertStringStartsWith('%PDF-', Storage::disk('local')->get($invoice->invoice_pdf_path));
+    }
+
+    /**
+     * Ha a Számlázz.hu API hibaválaszt ad, a helyi rekordnak "failed"
+     * állapotban kell maradnia - NEM szabad, hogy félkész "kiállított"
+     * (issued) állapotú, de valójában sosem létrejött bizonylat maradjon a
+     * rendszerben. A "failed" rekord emellett törölhető (isDeletable()),
+     * hogy az admin újrapróbálkozhasson.
+     */
+    public function test_szamlazz_hu_api_error_leaves_no_half_created_issued_invoice(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF41');
+        $this->storeSzamlazzHuSettings($institution);
+        Storage::fake('local');
+
+        Http::fake(fn () => Http::response($this->fakeSzamlazzHuErrorXml(), 200, ['Content-Type' => 'application/xml']));
+
+        $request = $this->makeStoreRequest($user, [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            'payment_method' => 'bank_transfer',
+            'due_date' => '2026-08-08',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => 'szulo@example.test',
+            'customer_tax_number' => '12345678-1-42',
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => 'Szamlazz.hu hiba teszt',
+        ]);
+
+        $this->actingAs($user);
+        app(InstitutionInvoiceController::class)->store($request);
+
+        $invoice = InstitutionInvoice::query()->firstOrFail();
+
+        $this->assertSame(InstitutionInvoice::STATUS_FAILED, $invoice->status);
+        $this->assertNull($invoice->invoice_pdf_path);
+        $this->assertNull($invoice->provider_invoice_id);
+        $this->assertTrue($invoice->isDeletable());
+        $this->assertStringContainsString('Teszt hiba', (string) $invoice->error_message);
+
+        // Sikertelen kiállítás esetén NEM jöhet létre semmilyen PDF-fájl a
+        // helyi tárolón ehhez az intézményhez.
+        $this->assertSame([], Storage::disk('local')->allFiles('invoices/szamlazz_hu/'.$institution->id));
+    }
+
+    /**
+     * Kapcsolati hiba (időtúllépés) esetén a bizonylat a szolgáltatónál
+     * ELKÉSZÜLHETETT, csak a válasz nem érkezett meg - ilyenkor a helyi
+     * rekord "failed" marad (törölhető/újrapróbálható), de a hibaüzenetnek
+     * kifejezetten figyelmeztetnie kell az adminisztrátort, hogy a
+     * Számlázz.hu felületén ellenőrizze a duplikáció elkerülése érdekében,
+     * mielőtt törli/újrapróbálja - ld. handleConnectionException().
+     */
+    public function test_szamlazz_hu_connection_timeout_marks_invoice_failed_with_duplicate_risk_warning(): void
+    {
+        [$institution, $user, $statement] = $this->seedStatementWithBillingProfile('INVF42');
+        $this->storeSzamlazzHuSettings($institution);
+        Storage::fake('local');
+
+        Http::fake(function () {
+            throw new \Illuminate\Http\Client\ConnectionException('Connection timed out');
+        });
+
+        $request = $this->makeStoreRequest($user, [
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            'payment_method' => 'bank_transfer',
+            'due_date' => '2026-08-08',
+            'fulfillment_date' => '2026-07-31',
+            'customer_name' => 'Szulo Payer',
+            'customer_email' => 'szulo@example.test',
+            'customer_tax_number' => '12345678-1-42',
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'note' => 'Szamlazz.hu idotullepes teszt',
+        ]);
+
+        $this->actingAs($user);
+        app(InstitutionInvoiceController::class)->store($request);
+
+        $invoice = InstitutionInvoice::query()->firstOrFail();
+
+        $this->assertSame(InstitutionInvoice::STATUS_FAILED, $invoice->status);
+        $this->assertSame(1, InstitutionInvoice::query()->count());
+        $this->assertStringContainsString('ELŐFORDULHAT', (string) $invoice->error_message);
+        $this->assertStringContainsString('duplikált', (string) $invoice->error_message);
+    }
+
+    /**
+     * A korábban implementált Számlázz.hu PDF-újralekérdezés (9. szakasz):
+     * a meglévő bizonylat PDF-je újralekérhető anélkül, hogy új
+     * kiállítási/sztornó kérés menne ki.
+     */
+    public function test_szamlazz_hu_invoice_pdf_can_be_reloaded_without_reissuing(): void
+    {
+        [$institution, $user, $statement, $guardian] = $this->seedStatementWithBillingProfile('INVF43');
+        $this->storeSzamlazzHuSettings($institution);
+        Storage::fake('local');
+
+        $invoice = new InstitutionInvoice();
+        $invoice->fill([
+            'institution_id' => $institution->id,
+            'child_id' => $statement->child_id,
+            'guardian_id' => $guardian->id,
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            'provider_invoice_id' => 'ETK-2026-0099',
+            'invoice_number' => 'ETK-2026-0099',
+            'status' => InstitutionInvoice::STATUS_ISSUED,
+            'issue_date' => '2026-08-01',
+            'due_date' => '2026-08-08',
+            'fulfillment_date' => '2026-07-31',
+            'net_amount' => (int) $statement->invoiceable_amount,
+            'vat_amount' => 0,
+            'gross_amount' => (int) $statement->invoiceable_amount,
+            'currency' => 'HUF',
+            'payment_method' => 'bank_transfer',
+            'customer_name' => 'Szulo Payer',
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'invoice_pdf_path' => null,
+        ]);
+        $invoice->institution_id = $institution->id;
+        $invoice->created_by = $user->id;
+        $invoice->save();
+
+        Http::fake(function (Request $request) {
+            if ($request->url() === 'https://www.szamlazz.hu/szamla/') {
+                return Http::response(
+                    $this->fakeSzamlazzHuSuccessXml('ETK-2026-0099', "%PDF-1.7\nujralekerdezett pdf"),
+                    200,
+                    ['Content-Type' => 'application/xml']
+                );
+            }
+
+            return Http::response('unexpected request', 500);
+        });
+
+        $response = $this->actingAs($user)
+            ->post(route('dashboard.institution.finance.invoices.reload-pdf', $invoice));
+
+        $response->assertRedirect(route('dashboard.institution.finance.invoices.show', $invoice));
+
+        $invoice->refresh();
+
+        $this->assertSame(InstitutionInvoice::STATUS_ISSUED, $invoice->status);
+        $this->assertSame('invoices/szamlazz_hu/'.$institution->id.'/ETK-2026-0099.pdf', $invoice->invoice_pdf_path);
+        Storage::disk('local')->assertExists($invoice->invoice_pdf_path);
+        $this->assertStringStartsWith('%PDF-', Storage::disk('local')->get($invoice->invoice_pdf_path));
+    }
+
+    /**
+     * Regressziós teszt a buildCancelRequestXml() dupla escape-elési
+     * hibájára: a sztornó indoklás (reason) mezőt a SimpleXMLElement::
+     * addChild() automatikusan escape-eli - ha ezt előtte még
+     * htmlspecialchars()-szel is escape-eljük, a különleges karakterek
+     * (pl. "&") duplán escape-elődnek (pl. "&amp;amp;"). A javított kód a
+     * nyers értéket adja át, ezért a kimenő XML-ben pontosan egyszeres
+     * escape-elésnek kell megjelennie.
+     */
+    public function test_szamlazz_hu_cancel_reason_is_not_double_escaped_in_outgoing_xml(): void
+    {
+        [$institution, $user, $statement, $guardian] = $this->seedStatementWithBillingProfile('INVF44');
+        $this->storeSzamlazzHuSettings($institution);
+        Storage::fake('local');
+
+        $invoice = new InstitutionInvoice();
+        $invoice->fill([
+            'institution_id' => $institution->id,
+            'child_id' => $statement->child_id,
+            'guardian_id' => $guardian->id,
+            'monthly_payment_statement_id' => $statement->id,
+            'provider' => InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            'provider_invoice_id' => 'ETK-2026-0100',
+            'invoice_number' => 'ETK-2026-0100',
+            'status' => InstitutionInvoice::STATUS_ISSUED,
+            'issue_date' => '2026-08-01',
+            'due_date' => '2026-08-08',
+            'fulfillment_date' => '2026-07-31',
+            'net_amount' => (int) $statement->invoiceable_amount,
+            'vat_amount' => 0,
+            'gross_amount' => (int) $statement->invoiceable_amount,
+            'currency' => 'HUF',
+            'payment_method' => 'bank_transfer',
+            'customer_name' => 'Szulo Payer',
+            'billing_postcode' => '1111',
+            'billing_city' => 'Budapest',
+            'billing_address' => 'Fo utca 1.',
+            'invoice_pdf_path' => null,
+        ]);
+        $invoice->institution_id = $institution->id;
+        $invoice->created_by = $user->id;
+        $invoice->save();
+
+        $reasonWithSpecialChars = 'Rossz cim & hibas adat "teszt"';
+        $capturedBody = null;
+
+        Http::fake(function (Request $request) use (&$capturedBody) {
+            $capturedBody = $request->body();
+
+            return Http::response(
+                $this->fakeSzamlazzHuSuccessXml('STORNO-2026-0100'),
+                200,
+                ['Content-Type' => 'application/xml']
+            );
+        });
+
+        app(InstitutionInvoiceService::class)->cancel($institution, $user, $invoice, $reasonWithSpecialChars);
+
+        $this->assertNotNull($capturedBody);
+        // Egyszeres escape-elés esetén az "&" karakter "&amp;"-ként jelenik
+        // meg az XML-ben - dupla escape-elés esetén "&amp;amp;" lenne.
+        $this->assertStringContainsString('Rossz cim &amp; hibas adat', $capturedBody);
+        $this->assertStringNotContainsString('&amp;amp;', $capturedBody);
+    }
+
     private function seedStatementWithBillingProfile(string $code): array
     {
         [$institution, $user] = $this->seedUserWithInstitution($code);
@@ -1023,6 +1550,46 @@ class InstitutionInvoiceFeatureTest extends TestCase
                 'billingo_document_block_id' => '77',
             ])
         );
+
+        $this->forgetCachedInstitutionSettingRelation($institution);
+    }
+
+    /**
+     * REGRESSZIÓ-VIZSGÁLAT EREDMÉNYE (2026-09): a seedStatementWithBillingProfile()
+     * végén meghívott PaymentObligationCalculatorService::recalculateMonth()
+     * a fizetési modell eldöntéséhez (InstitutionPaymentComponentService::
+     * usesSplitManualTransfer()) MÁR a $institution->setting Eloquent
+     * relációt olvassa - ezen a ponton MÉG NEM létezik institution_settings
+     * sor, ezért Eloquent a (null) eredményt gyorsítótárazza magán a $institution
+     * PHP-objektumon. A storeBillingoSettings()/storeSzamlazzHuSettings()
+     * ezután egy KÖZVETLEN query builder updateOrCreate()-tal hozza létre a
+     * beállítás-sort - ez NEM frissíti a $institution objektumon már
+     * gyorsítótárazott (elavult, null) relációt.
+     *
+     * Ameddig a teszt a controlleren/HTTP route-on keresztül megy (pl.
+     * store()/reload-pdf), ez nem probléma, mert ott mindig egy FRISS,
+     * AdminInstitutionContext által lekérdezett Institution-példány kerül
+     * felhasználásra. DE ha a teszt közvetlenül, a service-en keresztül hívja
+     * a cancel()-t UGYANAZZAL a $institution objektummal (ahogy ez a fájl
+     * minden cancel()-tesztje teszi), a BillingoInvoiceProvider::cancelInvoice()
+     * / SzamlazzHuInvoiceProvider::cancelInvoice() a régi, gyorsítótárazott
+     * null relációt kapja vissza - a hasBillingoApiKey()/hasSzamlazzHuAgentKey()
+     * emiatt hamisan hiányzónak látja a beállításokat, és a cancel()
+     * (InstitutionInvoiceService.php:452-453) throwValidation()-t dob.
+     *
+     * FONTOS: ÉLES környezetben ez SOSEM fordulhat elő, mert minden HTTP-kérés
+     * friss PHP-folyamatban, friss Institution-példánnyal fut - ez KIZÁRÓLAG a
+     * teszt-fixture azon mintájának a következménye, hogy egyetlen, hosszú
+     * élettartamú Institution-objektumot használ újra a settings létrehozása
+     * ELŐTTI és UTÁNI lépésekhez is. A production validáció (hasBillingoApiKey()/
+     * hasSzamlazzHuAgentKey()) HELYES és VÁLTOZATLAN maradt - a javítás
+     * kizárólag a teszt-fixture-ben történt: a beállítások mentése UTÁN
+     * explicit töröljük a gyorsítótárazott relációt, hogy a következő
+     * $institution->setting hozzáférés friss adatot töltsön be.
+     */
+    private function forgetCachedInstitutionSettingRelation(Institution $institution): void
+    {
+        $institution->unsetRelation('setting');
     }
 
     private function createBillingoInvoice(

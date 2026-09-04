@@ -130,8 +130,8 @@ class KitchenDailySummaryService
             'meal_type_counts' => $this->mealTypeCounts($childRows, $employeeRows),
             'dietary_breakdown' => $this->dietaryBreakdown($childRows, $employeeRows),
             'dietary_note' => $stats['employee_daily_eaters'] > 0
-                ? 'Egy gyermek vagy dolgozó több érzékenységi kategóriában is szerepelhet.'
-                : 'Egy gyermek több érzékenységi kategóriában is szerepelhet.',
+                ? 'A fenti sorok a pontos allergia-/érzékenység-kombinációnként MENTESEN elkészítendő adagok számát mutatják; egy gyermek vagy dolgozó mindig csak egy sorban, a teljes saját kombinációjával szerepel.'
+                : 'A fenti sorok a pontos allergia-/érzékenység-kombinációnként MENTESEN elkészítendő adagok számát mutatják; egy gyermek mindig csak egy sorban, a teljes saját kombinációjával szerepel.',
             'subject' => sprintf(
                 'Digifood – %s – Konyhai létszám – %s – %d fő',
                 $institution->name,
@@ -180,9 +180,21 @@ class KitchenDailySummaryService
             ->values();
     }
 
+    /**
+     * A konyhának nem az a hasznos, hogy összesen hány embert érint
+     * egyenként egy-egy allergén (pl. "Glutén: 2 fő", "Tej: 2 fő"), hanem
+     * az, hogy pontosan hány adagot kell elkészítenie egy adott
+     * allergén-EGYÜTTESTŐL mentesen. Ezért itt személyenként állítjuk elő a
+     * teljes allergia-/érzékenység-kombinációt (nem allergénenként külön
+     * számolunk), és csak az AZONOS kombinációjú személyeket vonjuk össze
+     * egy sorba - egy személy mindig pontosan egy kombináció darabszámát
+     * növeli. A kombináció azonosítója az érintett allergén-ID-k rendezett
+     * halmaza, így a felsorolási sorrend (pl. "glutén, tej" vs "tej,
+     * glutén") nem hoz létre külön csoportot.
+     */
     private function dietaryBreakdown(Collection $childRows, Collection $employeeRows): Collection
     {
-        $counts = collect();
+        $combinations = collect();
 
         foreach ($childRows->concat($employeeRows) as $row) {
             if (($row['status'] ?? null) !== DailyMealHeadcountService::STATUS_EATING) {
@@ -199,24 +211,77 @@ class KitchenDailySummaryService
                 continue;
             }
 
-            foreach ($eater->dietaryRestrictions as $restriction) {
-                $key = (string) $restriction->id;
-                $entry = $counts->get($key, [
-                    'name' => $restriction->name,
-                    'count' => 0,
-                    'sort_order' => (int) $restriction->sort_order,
-                ]);
-                $entry['count']++;
-                $counts->put($key, $entry);
+            $restrictions = collect($eater->dietaryRestrictions)
+                ->sortBy([
+                    ['sort_order', 'asc'],
+                    ['name', 'asc'],
+                ])
+                ->values();
+
+            if ($restrictions->isEmpty()) {
+                continue;
             }
+
+            $key = $restrictions->pluck('id')->sort()->values()->implode('-');
+
+            $entry = $combinations->get($key, [
+                'names' => $restrictions->pluck('name')->all(),
+                'min_sort_order' => (int) $restrictions->min('sort_order'),
+                'count' => 0,
+            ]);
+            $entry['count']++;
+            $combinations->put($key, $entry);
         }
 
-        return $counts
+        return $combinations
+            ->map(fn (array $entry) => [
+                'name' => $this->formatDietaryCombinationLabel($entry['names']),
+                'count' => $entry['count'],
+                'sort_order' => $entry['min_sort_order'],
+            ])
             ->sortBy([
                 ['sort_order', 'asc'],
                 ['name', 'asc'],
             ])
             ->values();
+    }
+
+    /**
+     * Konyhai szempontból egyértelmű, "-mentes" megfogalmazású címkét ad egy
+     * allergia-/érzékenység-kombinációhoz, pl.:
+     * ["Glutén"] -> "Gluténmentes"
+     * ["Tej", "Tojás"] -> "Tej- és tojásmentes"
+     * ["Glutén", "Tej"] -> "Glutén- és tejmentes"
+     * ["Glutén", "Tej", "Tojás"] -> "Glutén-, tej- és tojásmentes"
+     *
+     * @param  array<int, string>  $names  Az érintett allergének/érzékenységek
+     *                                     nevei, már rendezett sorrendben.
+     */
+    private function formatDietaryCombinationLabel(array $names): string
+    {
+        $names = array_values($names);
+        $count = count($names);
+
+        if ($count === 0) {
+            return '';
+        }
+
+        if ($count === 1) {
+            return $names[0].'mentes';
+        }
+
+        $parts = [];
+
+        foreach ($names as $index => $name) {
+            $isFirst = $index === 0;
+            $isLast = $index === $count - 1;
+            $text = $isFirst ? $name : mb_strtolower($name, 'UTF-8');
+            $parts[] = $isLast ? $text.'mentes' : $text.'-';
+        }
+
+        $last = array_pop($parts);
+
+        return implode(', ', $parts).' és '.$last;
     }
 
     private function appendMealTypeCounts(Collection $counts, Collection $rows, string $counterKey): void

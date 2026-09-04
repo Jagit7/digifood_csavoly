@@ -18,12 +18,16 @@
         // ellenőrzött letöltő route-ot adjuk, nem Storage::url()-t (ami 404-et adna).
         $invoiceViewUrl = $invoice->invoice_url
             ?: ($hasLocalInvoicePdf ? route('dashboard.institution.finance.invoices.download', $invoice) : null);
-        $canReloadInvoicePdf = $invoice->provider === \App\Models\InstitutionInvoice::PROVIDER_BILLINGO
+        // 2026-09: a PDF-újratöltés mostantól Billingo mellett Számlázz.hu-s
+        // bizonylatnál is elérhető (ld. InstitutionInvoiceService::reloadProviderPdf()
+        // és SzamlazzHuInvoiceProvider::downloadExistingInvoicePdf()/downloadExistingCancellationPdf()).
+        $reloadablePdfProviders = [\App\Models\InstitutionInvoice::PROVIDER_BILLINGO, \App\Models\InstitutionInvoice::PROVIDER_SZAMLAZZ_HU];
+        $canReloadInvoicePdf = in_array($invoice->provider, $reloadablePdfProviders, true)
             && in_array($invoice->status, [\App\Models\InstitutionInvoice::STATUS_ISSUED, \App\Models\InstitutionInvoice::STATUS_VOIDED], true)
             && filled($invoice->provider_invoice_id)
             && ! $hasLocalInvoicePdf;
         $canReloadCancellationPdf = $cancellationInvoice
-            && $cancellationInvoice->provider === \App\Models\InstitutionInvoice::PROVIDER_BILLINGO
+            && in_array($cancellationInvoice->provider, $reloadablePdfProviders, true)
             && filled($cancellationInvoice->provider_invoice_id)
             && ! $hasLocalCancellationPdf;
     @endphp

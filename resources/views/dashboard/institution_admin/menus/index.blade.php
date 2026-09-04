@@ -160,8 +160,11 @@
 									</td>
 
 									<td class="text-end">
-										<a href="{{ route('dashboard.institution.menus.show', $menu) }}">
-											Megtekintés
+										<a href="{{ route('dashboard.institution.menus.show', $menu) }}"
+										class="btn btn-xs btn-outline-primary"
+										title="Megtekintés"
+										aria-label="Megtekintés">
+											<i class="fa-solid fa-eye"></i>
 										</a>
 
 										<a href="{{ route('dashboard.institution.menus.download', $menu) }}"

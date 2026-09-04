@@ -73,6 +73,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('digifood:daily-attendance-email:dispatch')
             ->everyMinute()
             ->withoutOverlapping();
+        $schedule->command('digifood:daily-headcount-email:dispatch')
+            ->everyMinute()
+            ->withoutOverlapping();
         $schedule->command('digifood:saas-billing-summary:dispatch')
             ->dailyAt('08:05')
             ->withoutOverlapping();

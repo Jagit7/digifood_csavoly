@@ -178,7 +178,9 @@ class ParentDashboardController extends Controller
                     ? 'df-parent-stat-value-numeric'
                     : 'df-parent-stat-value-text',
                 'subtitle' => $financialOverview['has_statement']
-                    ? $financialOverview['month_label']
+                    ? (($financialOverview['overpayment_amount'] ?? 0) > 0
+                        ? 'Fennmaradó túlfizetés: ' . $this->formatForint($financialOverview['overpayment_amount'])
+                        : $financialOverview['month_label'])
                     : 'Az aktuális hónaphoz még nem készült elszámolás.',
                 'helper' => $financialOverview['has_statement']
                     ? 'Az összes kapcsolt gyermek aktuális havi fizetendője.'
@@ -286,7 +288,13 @@ class ParentDashboardController extends Controller
         return [
             'has_statement' => true,
             'month_label' => $today->locale('hu')->isoFormat('YYYY. MMMM'),
-            'total_payable' => $totalPayable,
+            // A "total_payable" a meglévő elszámolási mezőből származik és
+            // negatív is lehet (túlfizetés esetén) - a kártyán SOHA nem
+            // jeleníthető meg negatív "fizetendő"-ként (ld. felhasználói
+            // kérés), ezért a megjelenítésre szánt érték itt 0-nál soha nem
+            // kisebb, a fennmaradó túlfizetést pedig külön mező hordozza.
+            'total_payable' => \App\Support\Finance\SettlementAmountPresenter::payableDisplayAmount($totalPayable),
+            'overpayment_amount' => \App\Support\Finance\SettlementAmountPresenter::overpaymentAmount($totalPayable),
             'paid_total' => $paidTotal,
             'remaining' => $remaining,
             'completion_percent' => $completionPercent,

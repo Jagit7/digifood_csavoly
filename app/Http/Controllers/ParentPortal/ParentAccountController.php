@@ -54,10 +54,36 @@ class ParentAccountController extends Controller
         ]);
 
         $validator->after(function ($validator) use ($request): void {
-            $billingAddress = trim((string) $request->input('billing_address'));
+            // REGRESSZIÓ-VIZSGÁLAT EREDMÉNYE (2026-09, második kör): ez a
+            // blokk korábban csak a 'billing_address' és 'billing_city'
+            // mezőket nézte annak eldöntésére, hogy a szülő egyáltalán
+            // "hozzányúlt-e" a számlázási cím szekcióhoz - ha mindkettő üres
+            // volt, a teljes validációt kihagyta, FÜGGETLENÜL attól, hogy a
+            // 'billing_same_as_contact' explicit '0' (nem egyezik a
+            // lakcímmel) volt-e. Emiatt ha a szülő KIZÁRÓLAG a
+            // 'billing_postal_code' mezőt töltötte ki (város/cím nélkül),
+            // a hiányos, inkonzisztens számlázási cím validációs hiba
+            // nélkül, csendben elmentődött volna - ez valódi
+            // adatintegritási hiba. A javítás a 'billing_postal_code'
+            // mezőt IS bevonja a "hozzányúlt-e a szekcióhoz" ellenőrzésbe,
+            // így a lenti 3 forgatókönyv mindegyike helyesen viselkedik:
+            // (1) a szekció teljesen érintetlen (mind a 3 mező üres) -
+            // nincs hiba, a validáció kihagyva (ez a meglévő,
+            // MEGŐRZENDŐ viselkedés - ld. a kapcsolódó, jelenleg is PASS
+            // teszteket, pl. test_parent_can_keep_existing_email_without_
+            // unique_validation_error()); (2) 'billing_same_as_contact' be
+            // van jelölve (a lakcímmel egyezik) - nincs hiba, a
+            // gondviselő lakcíme kerül felhasználásra; (3) a szekció
+            // RÉSZBEN ki van töltve (akár csak az irányítószám) ÉS
+            // 'billing_same_as_contact' nincs bejelölve - a település és a
+            // cím KÖTELEZŐ, hiányuk esetén validációs hiba.
+            $billingPostalCode = trim((string) $request->input('billing_postal_code'));
             $billingCity = trim((string) $request->input('billing_city'));
+            $billingAddress = trim((string) $request->input('billing_address'));
 
-            if ($billingAddress === '' && $billingCity === '') {
+            $hasAnyBillingAddressInput = $billingPostalCode !== '' || $billingCity !== '' || $billingAddress !== '';
+
+            if (! $hasAnyBillingAddressInput) {
                 return;
             }
 

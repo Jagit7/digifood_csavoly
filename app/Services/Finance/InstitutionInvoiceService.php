@@ -14,6 +14,7 @@ use App\Services\Finance\Providers\InvoiceProviderInterface;
 use App\Services\Finance\Providers\InvoiceProviderPayload;
 use App\Services\Finance\Providers\ManualInvoiceProvider;
 use App\Services\Finance\Providers\SzamlazzHuInvoiceProvider;
+use App\Support\Finance\SettlementAmountPresenter;
 use App\Support\PaymentObligation\MonthlyPaymentStatementPeriodHelper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -162,7 +163,14 @@ class InstitutionInvoiceService
         return MonthlyPaymentStatement::query()
             ->with('child')
             ->where('institution_id', $institution->id)
-            ->where('total_payable', '>', 0)
+            // FONTOS: kizárólag az AKTUÁLIS havi, ténylegesen számlázható
+            // összeg (invoiceable_amount) alapján szűrünk, nem a korábbi
+            // tartozást/túlfizetést is tartalmazó total_payable alapján -
+            // lásd store()/buildPreview() ugyanezen indoklását lentebb. Egy
+            // statement, aminek csak korábbi tartozása van (invoiceable_amount
+            // <= 0, de total_payable > 0), NEM kereshető itt elő, mert rá
+            // ebben a hónapban nem állítható ki új számla.
+            ->where('invoiceable_amount', '>', 0)
             ->whereDoesntHave('invoice')
             ->where(function (Builder $query) use ($term) {
                 $query->whereHas('child', function (Builder $childQuery) use ($term) {
@@ -250,8 +258,18 @@ class InstitutionInvoiceService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($statement->total_payable <= 0) {
-                $this->throwValidation(['monthly_payment_statement_id' => '0 Ft vagy negatív összegű kötelezettségre nem készülhet számla.']);
+            // FONTOS (2026-09-es javítás): a számlázandó összeg KIZÁRÓLAG az
+            // adott havi elszámolás aktuális havi része (invoiceable_amount)
+            // lehet - a total_payable ezzel szemben a korábbi
+            // tartozást/túlfizetést (previous_balance) IS tartalmazza
+            // (total_payable = invoiceable_amount + previous_balance, ld.
+            // PaymentObligationCalculatorService::refreshStatementTotals()).
+            // A korábbi egyenleget a szülőnek/intézménynek külön, személyesen
+            // kell rendeznie, az az önkormányzatnál - a most kiállított
+            // számlába NEM kerülhet bele. Ezért itt is, és a $grossAmount
+            // számításánál lentebb is invoiceable_amount-ot kell nézni.
+            if ($statement->invoiceable_amount <= 0) {
+                $this->throwValidation(['monthly_payment_statement_id' => '0 Ft vagy negatív összegű aktuális havi kötelezettségre nem készülhet számla.']);
             }
 
             $existingInvoice = InstitutionInvoice::query()
@@ -297,7 +315,11 @@ class InstitutionInvoiceService
                 }
             }
 
-            $grossAmount = (int) $statement->total_payable;
+            // Ld. a fenti invoiceable_amount <= 0 ellenőrzés kommentjét: a
+            // ténylegesen kiszámlázott bruttó összeg SOSEM tartalmazhatja a
+            // korábbi tartozást/túlfizetést, ezért itt is invoiceable_amount
+            // a forrás, NEM total_payable.
+            $grossAmount = (int) $statement->invoiceable_amount;
             $invoice = new InstitutionInvoice;
             $invoice->fill([
                 'child_id' => $statement->child_id,
@@ -499,7 +521,7 @@ class InstitutionInvoiceService
 
     public function reloadInvoicePdf(Institution $institution, InstitutionInvoice $invoice): InstitutionInvoice
     {
-        return $this->reloadBillingoPdf($institution, $invoice);
+        return $this->reloadProviderPdf($institution, $invoice);
     }
 
     public function reloadCancellationPdf(Institution $institution, InstitutionInvoice $invoice): InstitutionInvoice
@@ -514,7 +536,7 @@ class InstitutionInvoiceService
             $this->throwValidation(['invoice' => 'Ehhez a számlához nem tartozik külön sztornó bizonylatrekord.']);
         }
 
-        return $this->reloadBillingoPdf($institution, $cancellationInvoice);
+        return $this->reloadProviderPdf($institution, $cancellationInvoice);
     }
 
     /**
@@ -603,7 +625,21 @@ class InstitutionInvoiceService
         };
     }
 
-    private function reloadBillingoPdf(Institution $institution, InstitutionInvoice $invoice): InstitutionInvoice
+    /**
+     * PDF-újratöltés a bizonylatot ténylegesen kiállító szolgáltatótól.
+     *
+     * FONTOS (2026-09-es bővítés): korábban ez a metódus ("reloadBillingoPdf"
+     * néven) kizárólag Billingo-s bizonylatnál működött, mert közvetlenül a
+     * BillingoInvoiceProvider::downloadExistingDocumentPdf() Billingo-specifikus
+     * metódusát hívta. Mivel a SzamlazzHuInvoiceProvider mostantól szintén
+     * implementálja a downloadExistingInvoicePdf()/downloadExistingCancellationPdf()
+     * interfész-metódusokat (ld. SzamlazzHuInvoiceProvider), a szolgáltató-
+     * feloldás mostantól a provider()-en (a store()/cancel() által is
+     * használt, meglévő feloldási ponton) keresztül, generikusan történik -
+     * ez a Billingo-s viselkedést NEM változtatja meg (ugyanaz a hívási lánc
+     * fut le rá, csak most már nem hardcode-olt osztályon keresztül).
+     */
+    private function reloadProviderPdf(Institution $institution, InstitutionInvoice $invoice): InstitutionInvoice
     {
         abort_if($invoice->institution_id !== $institution->id, 403);
 
@@ -619,28 +655,30 @@ class InstitutionInvoiceService
                 $this->throwValidation(['invoice' => 'A számlához nem található fizetési kötelezettség, ezért a PDF nem tölthető újra.']);
             }
 
-            if ($invoice->provider !== InstitutionInvoice::PROVIDER_BILLINGO) {
-                $this->throwValidation(['invoice' => 'PDF újratöltés jelenleg csak Billingo-s bizonylatnál használható.']);
+            $reloadableProviders = [InstitutionInvoice::PROVIDER_BILLINGO, InstitutionInvoice::PROVIDER_SZAMLAZZ_HU];
+            if (! in_array($invoice->provider, $reloadableProviders, true)) {
+                $this->throwValidation(['invoice' => 'PDF újratöltés jelenleg csak Billingo-s vagy Számlázz.hu-s bizonylatnál használható.']);
             }
 
             if (! in_array($invoice->status, [InstitutionInvoice::STATUS_ISSUED, InstitutionInvoice::STATUS_VOIDED], true)) {
-                $this->throwValidation(['invoice' => 'A számla PDF-je csak már kiállított Billingo-s bizonylatnál tölthető újra.']);
+                $this->throwValidation(['invoice' => 'A számla PDF-je csak már kiállított bizonylatnál tölthető újra.']);
             }
 
             if (! filled($invoice->provider_invoice_id)) {
-                $this->throwValidation(['invoice' => 'A számlához nem tartozik Billingo bizonylatazonosító, ezért a PDF nem tölthető újra.']);
+                $this->throwValidation(['invoice' => 'A számlához nem tartozik szolgáltatói bizonylatazonosító, ezért a PDF nem tölthető újra.']);
             }
 
             if ($this->hasUsableInvoicePdf($invoice)) {
                 return $invoice->fresh(['child', 'guardian', 'monthlyPaymentStatement', 'creator', 'cancelledBy']);
             }
 
-            $result = app(BillingoInvoiceProvider::class)->downloadExistingDocumentPdf(
-                new InvoiceProviderPayload($institution, $statement, $invoice)
-            );
+            $payload = new InvoiceProviderPayload($institution, $statement, $invoice);
+            $result = $invoice->isCancellationDocument()
+                ? $this->provider($invoice->provider)->downloadExistingCancellationPdf($payload)
+                : $this->provider($invoice->provider)->downloadExistingInvoicePdf($payload);
 
             if (! filled($result->invoicePdfPath)) {
-                $this->throwValidation(['invoice' => $result->errorMessage ?: 'A számla PDF-je nem tölthető újra a Billingótól.']);
+                $this->throwValidation(['invoice' => $result->errorMessage ?: 'A számla PDF-je nem tölthető újra a szolgáltatótól.']);
             }
 
             $invoice->invoice_pdf_path = $result->invoicePdfPath;
@@ -815,8 +853,11 @@ class InstitutionInvoiceService
 
         $errors = [];
 
-        if ($statement->total_payable <= 0) {
-            $errors[] = '0 Ft vagy negatív összegű kötelezettségre nem készülhet számla.';
+        // Ld. store() azonos indoklású kommentjét: a számla előnézete is az
+        // aktuális havi, ténylegesen számlázható összeget (invoiceable_amount)
+        // nézi, nem a korábbi egyenleggel kombinált total_payable-t.
+        if ($statement->invoiceable_amount <= 0) {
+            $errors[] = '0 Ft vagy negatív összegű aktuális havi kötelezettségre nem készülhet számla.';
         }
 
         if ($existingInvoice) {
@@ -841,7 +882,18 @@ class InstitutionInvoiceService
                 'child_name' => $statement->child?->name,
                 'guardian_name' => $billing['guardian_name'],
                 'month_label' => $periods['payment_period_label'],
-                'gross_amount' => (int) $statement->total_payable,
+                // A ténylegesen számlázott összeg - ld. store() kommentjét:
+                // KIZÁRÓLAG az aktuális havi rész, korábbi egyenleg nélkül.
+                'gross_amount' => (int) $statement->invoiceable_amount,
+                // Csak TÁJÉKOZTATÓ jellegű mezők az admin felület számára,
+                // hogy jól látható legyen, miért térhet el a fenti
+                // gross_amount a korábban megszokott (kombinált) összegtől -
+                // ezek NEM kerülnek a számlára, és a store()-ban sem
+                // használódnak fel semennyire.
+                'previous_balance' => (int) $statement->previous_balance,
+                'previous_balance_label' => SettlementAmountPresenter::previousBalanceLabel((int) $statement->previous_balance),
+                'previous_balance_display_amount' => SettlementAmountPresenter::previousBalanceDisplayAmount((int) $statement->previous_balance),
+                'total_payable_with_previous_balance' => (int) $statement->total_payable,
                 'due_date' => $dueDate->toDateString(),
                 'fulfillment_date' => $fulfillmentDate->toDateString(),
                 'issue_date' => now(config('digifood.business_timezone', 'Europe/Budapest'))->toDateString(),

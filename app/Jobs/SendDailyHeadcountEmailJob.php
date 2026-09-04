@@ -1,0 +1,111 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Mail\DailyHeadcountEmailMail;
+use App\Models\DailyHeadcountEmailLog;
+use App\Services\DailyHeadcount\DailyHeadcountEmailService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use RuntimeException;
+use Throwable;
+
+class SendDailyHeadcountEmailJob implements ShouldQueue
+{
+    use Queueable;
+
+    public int $tries = 3;
+
+    /**
+     * @var array<int, int>
+     */
+    public array $backoff = [60, 300, 900];
+
+    public function __construct(
+        public readonly int $logId
+    ) {}
+
+    public function handle(DailyHeadcountEmailService $service): void
+    {
+        $log = DB::transaction(function () {
+            $log = DailyHeadcountEmailLog::query()
+                ->with('institution')
+                ->lockForUpdate()
+                ->find($this->logId);
+
+            if ($log === null || ! in_array($log->status, [
+                DailyHeadcountEmailLog::STATUS_QUEUED,
+                DailyHeadcountEmailLog::STATUS_FAILED,
+            ], true)) {
+                return null;
+            }
+
+            $log->forceFill([
+                'status' => DailyHeadcountEmailLog::STATUS_SENDING,
+                'failed_at' => null,
+            ])->save();
+
+            return $log;
+        });
+
+        if ($log === null) {
+            return;
+        }
+
+        try {
+            $recipients = $service->recipientEmailsForGroup($log->institution_id, $log->group_name);
+
+            if ($recipients === []) {
+                throw new RuntimeException('Nincs beállított címzett ehhez az osztályhoz/csoporthoz.');
+            }
+
+            $summary = $service->buildGroupSummary($log->institution, $log->group_name, $log->headcount_date);
+
+            Mail::to($recipients)->send(new DailyHeadcountEmailMail($summary));
+
+            DB::transaction(function () use ($log, $summary, $recipients) {
+                $freshLog = DailyHeadcountEmailLog::query()
+                    ->lockForUpdate()
+                    ->findOrFail($log->id);
+
+                $freshLog->forceFill([
+                    'status' => DailyHeadcountEmailLog::STATUS_SENT,
+                    'recipient_emails' => $recipients,
+                    'subject' => $summary['subject'],
+                    'eaters_count' => $summary['eaters_count'],
+                    'sent_at' => now(),
+                    'failed_at' => null,
+                    'error_message' => null,
+                ])->save();
+            });
+        } catch (Throwable $exception) {
+            Log::error('Daily headcount email sending failed.', [
+                'log_id' => $log->id,
+                'institution_id' => $log->institution_id,
+                'group_name' => $log->group_name,
+                'headcount_date' => $log->headcount_date?->toDateString(),
+                'attempt' => $this->attempts(),
+                'message' => $exception->getMessage(),
+            ]);
+
+            DB::transaction(function () use ($log, $exception) {
+                $freshLog = DailyHeadcountEmailLog::query()
+                    ->lockForUpdate()
+                    ->findOrFail($log->id);
+
+                $freshLog->forceFill([
+                    'status' => $this->attempts() >= $this->tries
+                        ? DailyHeadcountEmailLog::STATUS_FAILED
+                        : DailyHeadcountEmailLog::STATUS_QUEUED,
+                    'failed_at' => $this->attempts() >= $this->tries ? now() : null,
+                    'error_message' => mb_substr($exception->getMessage(), 0, 65535),
+                ])->save();
+            });
+
+            throw $exception;
+        }
+    }
+}
