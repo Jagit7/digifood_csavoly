@@ -86,6 +86,31 @@
                         </div>
                     </div>
 
+                    @if($user->role === \App\Models\User::ROLE_INSTITUTION_SECRETARY)
+                        <div class="mb-3 row">
+                            <label class="col-sm-3 col-form-label">Számla sztornózása</label>
+                            <div class="col-sm-9">
+                                <div class="form-check form-switch">
+                                    <input type="hidden" name="cancel_invoices" value="0">
+
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           name="cancel_invoices"
+                                           value="1"
+                                           {{ old('cancel_invoices', $canCancelInvoices) ? 'checked' : '' }}>
+
+                                    <label class="form-check-label">
+                                        Jogosult a kiállított számlák sztornózására
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    Csak intézményi titkár szerepkörnél állítható - intézményi admin
+                                    és szuperadmin mindig jogosult.
+                                </small>
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="mb-4 row">
                         <label class="col-sm-3 col-form-label">Állapot</label>
                         <div class="col-sm-9">

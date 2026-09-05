@@ -87,7 +87,7 @@
                 <div class="row align-items-end">
                     <div class="col-xl-3 col-lg-6 mb-3">
                         <label class="form-label">Keresés</label>
-                        <input type="search" name="search" class="form-control" value="{{ request('search') }}" placeholder="Számlaszám, gyermek vagy gondviselő">
+                        <input type="search" name="search" class="form-control" value="{{ request('search') }}" placeholder="Számlaszám, fizetési közlemény, gyermek vagy gondviselő">
                     </div>
                     <div class="col-xl-2 col-lg-3 mb-3">
                         <label class="form-label">Hónap</label>
@@ -176,6 +176,8 @@
                             <th>Típus</th>
                             <th>Kapcsolódó dokumentum</th>
                             <th>Gyermek / fizető</th>
+                            <th>Fizetési közlemény</th>
+                            <th>Létrehozva / indította</th>
                             <th>Kiállítás</th>
                             <th>Teljesítés</th>
                             <th>Összeg</th>
@@ -229,6 +231,23 @@
                                     <div class="small text-muted">{{ $invoice->guardian?->full_name ?? $invoice->customer_name }}</div>
                                     @if($statement)
                                         <div class="small text-muted">{{ sprintf('%04d.%02d', $statement->year, $statement->month) }}</div>
+                                    @endif
+                                </td>
+                                <td>
+                                    {{ $statement?->payment_reference ?: '—' }}
+                                </td>
+                                <td>
+                                    <div class="small">{{ $invoice->created_at?->format('Y.m.d. H:i') }}</div>
+                                    @if($invoice->creator)
+                                        <div class="small text-muted">{{ $invoice->creator->name }} ({{ $invoice->creator->role_label }})</div>
+                                    @else
+                                        <div class="small text-muted">Rendszer (automatikus)</div>
+                                    @endif
+                                    @if($invoice->institutionPayment?->paid_at)
+                                        <div class="small text-success">
+                                            Fizetve: {{ number_format($invoice->institutionPayment->amount, 0, ',', ' ') }} Ft
+                                            ({{ $invoice->institutionPayment->paid_at->format('Y.m.d.') }})
+                                        </div>
                                     @endif
                                 </td>
                                 <td>{{ $invoice->issue_date?->format('Y.m.d.') ?: 'Még nincs' }}</td>

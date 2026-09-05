@@ -200,10 +200,27 @@ class InstitutionInvoiceController extends Controller
         ]);
     }
 
+    /**
+     * "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": super_admin mindig jogosult (ehhez
+     * ő maga - a rendszer más intézményi dashboard-nézetétől eltérően -
+     * nincs egy adott, munkamenetben kiválasztott intézményhez kötve, ezért
+     * itt kifejezetten a route-model-bindolt $invoice saját institution_id-
+     * jét használjuk intézményi kontextusként, nem a session-alapú
+     * currentAdminInstitution()-t); institution_admin mindig jogosult (ld.
+     * User::hasPermission()); institution_secretary CSAK akkor, ha az
+     * InstitutionInvoice::PERMISSION_CANCEL dedikált jogosultság ki van
+     * osztva neki (ld. AdminInstitutionAccessController::update()); parent
+     * soha - a route "role:" middleware-je ezt eddig is kizárta, ez az
+     * abort_unless() egy második, backend-oldali védelmi réteg.
+     */
     public function cancel(InstitutionInvoiceCancelRequest $request, InstitutionInvoice $invoice): RedirectResponse
     {
-        $institution = $this->institution();
-        $invoice = $this->invoiceService->cancel($institution, $request->user(), $invoice, $request->validated('reason'));
+        $user = $request->user();
+        $institution = $user->isSuperAdmin() ? $invoice->institution : $this->institution();
+
+        abort_unless($user->hasPermission(InstitutionInvoice::PERMISSION_CANCEL), 403, 'Nincs jogosultsága számla sztornózásához.');
+
+        $invoice = $this->invoiceService->cancel($institution, $user, $invoice, $request->validated('reason'));
 
         return redirect()
             ->route('dashboard.institution.finance.invoices.show', $invoice)

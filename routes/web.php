@@ -611,7 +611,16 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
         | Pénzügyek
         |--------------------------------------------------------------------------
         */
-        Route::middleware('role:institution_admin,municipality')
+        // 2. FÁZIS - "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": a "institution_secretary"
+        // szerepkör itt a csoport-szintű kapun kizárólag azért kapott helyet,
+        // hogy a lentebbi 'invoices'/'invoices.show'/'invoices.cancel' route-ok
+        // saját, szűkebb middleware-je egyáltalán átengedhesse őket (a
+        // middleware-ek AND logikával összeadódnak, nem írják felül egymást) -
+        // minden MÁS pénzügyi route (payments/debts/exports/stb.) továbbra is
+        // kizárólag 'institution_admin'-ra van szűkítve a saját route-szintű
+        // middleware-jében, tehát ez a bővítés önmagában NEM ad institution_secretary-nak
+        // hozzáférést semmi máshoz ezen a csoporton belül.
+        Route::middleware('role:institution_admin,municipality,institution_secretary')
             ->prefix('institution-admin/finance')
             ->name('institution.finance.')
             ->group(function () {
@@ -661,7 +670,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
                     ->middleware('role:institution_admin')
                     ->name('debts.show');
                 Route::get('/invoices', [InstitutionInvoiceController::class, 'index'])
-                    ->middleware('role:institution_admin')
+                    ->middleware('role:institution_admin,institution_secretary')
                     ->name('invoices');
                 Route::get('/invoices/statements/search', [InstitutionInvoiceController::class, 'searchStatements'])
                     ->middleware('role:institution_admin')
@@ -679,7 +688,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
                     ->middleware('role:institution_admin')
                     ->name('invoices.sync');
                 Route::get('/invoices/{invoice}', [InstitutionInvoiceController::class, 'show'])
-                    ->middleware('role:institution_admin')
+                    ->middleware('role:institution_admin,institution_secretary')
                     ->name('invoices.show');
                 Route::get('/invoices/{invoice}/download', [InstitutionInvoiceController::class, 'download'])
                     ->middleware('role:institution_admin')
@@ -693,8 +702,21 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
                 Route::post('/invoices/{invoice}/reload-cancellation-pdf', [InstitutionInvoiceController::class, 'reloadCancellationPdf'])
                     ->middleware('role:institution_admin')
                     ->name('invoices.reload-cancellation-pdf');
+                // A tényleges "ki jogosult sztornózni" döntést a controller
+                // (InstitutionInvoiceController::cancel()) hozza meg
+                // User::hasPermission(InstitutionInvoice::PERMISSION_CANCEL) alapján
+                // (super_admin/institution_admin mindig igen, institution_secretary
+                // csak dedikált jogosultsággal) - ez a role: middleware csak azt
+                // dönti el, ki juthat el egyáltalán idáig. A 'super_admin' szerepel
+                // itt, de MA MÉG NEM ér el ide: a fenti, ezt az egészet befoglaló
+                // 'institution-context'+'role:' kapu (routes/web.php kb. 228. sor)
+                // nem engedi be a super_admin-t egyetlen /institution-admin/* oldalra
+                // sem - ez egy jelenlegi, a számlázástól független architekturális
+                // hiányosság, amit szándékosan NEM oldottunk meg itt (ld. a záró
+                // jelentés vonatkozó pontja), nehogy egy szélesebb, kockázatosabb
+                // routing-átalakítást indítsunk útjára a 2. fázis keretében.
                 Route::post('/invoices/{invoice}/cancel', [InstitutionInvoiceController::class, 'cancel'])
-                    ->middleware('role:institution_admin')
+                    ->middleware('role:institution_admin,institution_secretary,super_admin')
                     ->name('invoices.cancel');
                 Route::delete('/invoices/{invoice}', [InstitutionInvoiceController::class, 'destroy'])
                     ->middleware('role:institution_admin')

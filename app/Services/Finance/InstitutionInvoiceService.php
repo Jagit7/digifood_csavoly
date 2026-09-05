@@ -18,6 +18,7 @@ use App\Support\Finance\SettlementAmountPresenter;
 use App\Support\PaymentObligation\MonthlyPaymentStatementPeriodHelper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -67,6 +68,12 @@ class InstitutionInvoiceService
                         ->orWhereHas('guardian', function (Builder $guardianQuery) use ($search) {
                             $guardianQuery->where('last_name', 'like', "%{$search}%")
                                 ->orWhere('first_name', 'like', "%{$search}%");
+                        })
+                        // 2. FÁZIS - "5. ADMIN FELÜLET": kereshetőség a szülő
+                        // önkiszolgáló számlázásakor generált, a statementen tárolt
+                        // egyedi fizetési közlemény (payment_reference) szerint is.
+                        ->orWhereHas('monthlyPaymentStatement', function (Builder $statementQuery) use ($search) {
+                            $statementQuery->where('payment_reference', 'like', "%{$search}%");
                         });
                 });
             })
@@ -413,6 +420,155 @@ class InstitutionInvoiceService
             'billing_address' => $statementPreview['billing_address'],
             'note' => 'Automatikus számlakiállítás sikeres CIB bankkártyás fizetés után.',
         ]);
+    }
+
+    /**
+     * 2. FÁZIS: a SZÜLŐ saját maga indítja el a tárgyhavi számlázási
+     * folyamatot (ld. ParentInvoiceInitiationService). Szándékosan a MEGLÉVŐ
+     * store() útvonalat hívja - nem épül párhuzamos, önálló
+     * számlakiállítási logika -, ugyanazokkal a garanciákkal:
+     *  - kizárólag az aktuális havi invoiceable_amount kerül a számlára
+     *    (store() saját, változatlan guard-ja);
+     *  - a statement sorát lockForUpdate()-tel zároljuk, ami MySQL/InnoDB
+     *    alatt a párhuzamos (dupla kattintás / oldalfrissítés) kéréseket a
+     *    tranzakció végéig sorba állítja, nem csak frontend gombtiltással;
+     *  - ha időközben már létrejött a számla, nem hibázunk, hanem a MEGLÉVŐ
+     *    rekordot adjuk vissza (idempotens - dupla POST nem hoz létre
+     *    második számlát és nem generál új referenciát sem).
+     *
+     * A szolgáltatót (Billingo/Számlázz.hu) a szülő NEM választhatja meg - ez
+     * mindig az intézmény InstitutionSetting::invoicing_provider beállítása
+     * (ugyanaz a minta, mint az admin felület InstitutionInvoiceStoreRequest::
+     * allowedProvider()-jénél). "manual" szolgáltatónál (vagy ha a számlázás
+     * nincs bekapcsolva) NINCS önkiszolgáló számlakiállítás - ott a
+     * ManualInvoiceProvider csak egy üres "draft" placeholder rekordot hozna
+     * létre, valódi bizonylat és PDF nélkül, ami a szülőnek félrevezető
+     * lenne.
+     */
+    public function createForParent(Institution $institution, User $parent, MonthlyPaymentStatement $statement): InstitutionInvoice
+    {
+        abort_if($statement->institution_id !== $institution->id, 403);
+
+        return DB::transaction(function () use ($institution, $parent, $statement) {
+            $lockedStatement = MonthlyPaymentStatement::query()
+                ->where('institution_id', $institution->id)
+                ->whereKey($statement->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // Ld. store() azonos indoklású ellenőrzését: a szülő is
+            // kizárólag az aktuális havi, ténylegesen számlázható összegre
+            // (invoiceable_amount) indíthat számlázást - a korábbi
+            // tartozás/túlfizetés (previous_balance) ebbe SOSEM számít bele.
+            if ($lockedStatement->invoiceable_amount <= 0) {
+                $this->throwValidation(['statement' => '0 Ft vagy negatív összegű aktuális havi kötelezettségre nem indítható számlázás.']);
+            }
+
+            if (! $lockedStatement->isClosed() || ! empty($lockedStatement->issues ?? [])) {
+                $this->throwValidation(['statement' => 'Ehhez a hónaphoz még nem véglegesített (lezárt) az elszámolás, ezért a szülő egyelőre nem indíthat számlázást.']);
+            }
+
+            $existingInvoice = $this->existingInvoiceForStatement($institution, $lockedStatement->id);
+            if ($existingInvoice) {
+                // Idempotencia: dupla kattintás / oldalfrissítés / párhuzamos
+                // kérés esetén a MEGLÉVŐ számlát adjuk vissza, nem hibázunk és
+                // nem hozunk létre másodikat.
+                return $existingInvoice;
+            }
+
+            $settings = $this->settings($institution);
+            $provider = $settings->invoicing_provider;
+
+            if (! $settings->invoicing_enabled || ! in_array($provider, [
+                InstitutionInvoice::PROVIDER_BILLINGO,
+                InstitutionInvoice::PROVIDER_SZAMLAZZ_HU,
+            ], true)) {
+                $this->throwValidation(['statement' => 'Ennél az intézménynél jelenleg nem érhető el önálló, szülő által indított számlázás.']);
+            }
+
+            // A payment_reference-t MÁR ITT, a tényleges számla létrehozása
+            // előtt generáljuk és mentjük - a "3. EGYEDI FIZETÉSI KÖZLEMÉNY"
+            // feladat szerint ennek a statement teljes életciklusán át
+            // (újranyitáskor is) ugyanannak kell maradnia, ezért csak akkor
+            // generálunk újat, ha még nincs neki. A lockForUpdate() miatt két
+            // párhuzamos kérés nem generálhat két különböző referenciát
+            // ugyanarra a statementre.
+            if (! filled($lockedStatement->payment_reference)) {
+                $this->assignUniquePaymentReference($lockedStatement);
+            }
+
+            $preview = $this->buildPreview($institution, $lockedStatement, $provider);
+
+            if (! $preview['available']) {
+                $this->throwValidation(['statement' => implode(' ', $preview['errors'])]);
+            }
+
+            $statementPreview = $preview['statement'];
+
+            return $this->store($institution, $parent, [
+                'monthly_payment_statement_id' => $lockedStatement->id,
+                'provider' => $provider,
+                'due_date' => $statementPreview['due_date'],
+                'fulfillment_date' => $statementPreview['fulfillment_date'],
+                // A szülői önkiszolgáló folyamat célja pont az, hogy a szülő
+                // banki átutalással tudjon fizetni (ld. a payment_reference-t
+                // felhasználó, e módszer által visszaadott számlához tartozó
+                // banki tájékoztató blokkot) - ha az intézmény nem állított be
+                // eltérő alapértelmezett fizetési módot a szolgáltatóhoz,
+                // "átutalás" az ésszerű alapértelmezés.
+                'payment_method' => $statementPreview['payment_method'] ?? InstitutionPayment::METHOD_BANK_TRANSFER,
+                'customer_name' => $statementPreview['customer_name'],
+                'customer_email' => $statementPreview['customer_email'],
+                'customer_tax_number' => $statementPreview['customer_tax_number'],
+                'billing_postcode' => $statementPreview['billing_postcode'],
+                'billing_city' => $statementPreview['billing_city'],
+                'billing_address' => $statementPreview['billing_address'],
+                'note' => 'Szülő által önállóan indított számlázás a szülői felületen.',
+            ]);
+        });
+    }
+
+    /**
+     * Emberi diktálásra is alkalmas, egyedi fizetési referencia/közlemény
+     * beállítása és mentése a statementre - ld. a "3. EGYEDI FIZETÉSI
+     * KÖZLEMÉNY" feladatot. A karakterkészletből szándékosan hiányzik a 0/O
+     * és 1/I/L (könnyen összetéveszthető telefonon/papíron bediktálva).
+     *
+     * A tényleges egyediséget a payment_reference oszlopon lévő DB-szintű
+     * unique index garantálja (ld. migráció) - a hívó fél már zárolta
+     * (lockForUpdate) az AKTUÁLIS statement sorát, ez véd a rá irányuló
+     * dupla kéréstől, de nem véd egy MÁSIK statementre párhuzamosan futó
+     * kérés esetleges (rendkívül valószínűtlen) véletlenszerű ütközése
+     * ellen - erre szolgál az újrapróbálkozás unique constraint hiba esetén,
+     * ugyanaz a minta, mint a ParentMonthlySettlementService::
+     * createPaymentIntent()-ben már meglévő, bevált unique-ütközés kezelés.
+     */
+    private function assignUniquePaymentReference(MonthlyPaymentStatement $statement, int $attempt = 0): void
+    {
+        $charset = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+        $suffix = '';
+        for ($i = 0; $i < 5; $i++) {
+            $suffix .= $charset[random_int(0, strlen($charset) - 1)];
+        }
+
+        $statement->payment_reference = sprintf(
+            'DF-%02d%02d-%s',
+            $statement->year % 100,
+            $statement->month,
+            $suffix
+        );
+
+        try {
+            $statement->save();
+        } catch (QueryException $exception) {
+            if ($exception->getCode() !== '23000') {
+                throw $exception;
+            }
+
+            abort_if($attempt >= 10, 500, 'Nem sikerült egyedi fizetési referenciát generálni.');
+
+            $this->assignUniquePaymentReference($statement, $attempt + 1);
+        }
     }
 
     /**

@@ -75,6 +75,8 @@ Route::prefix('szulo')
                 ->name('monthly-settlements.index');
             Route::post('/havi-elszamolasok/fizetes', [ParentMonthlySettlementController::class, 'store'])
                 ->name('monthly-settlements.store');
+            Route::post('/havi-elszamolasok/{statement}/szamla', [ParentMonthlySettlementController::class, 'storeInvoice'])
+                ->name('monthly-settlements.invoice.store');
             Route::redirect('/havi-elszamolasok/osszesito', '/havi-elszamolasok')
                 ->name('statements');
             Route::get('/befizetesek', [ParentPaymentController::class, 'index'])

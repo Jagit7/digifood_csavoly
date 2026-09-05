@@ -35,6 +35,19 @@ class InstitutionInvoice extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    /**
+     * 2. FÁZIS - "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": dedikált jogosultság
+     * intézményi titkár (institution_secretary) számára a számla
+     * sztornózásához. super_admin és institution_admin számára a
+     * User::hasPermission() már eddig is automatikusan "igen"-t adott
+     * (ld. a metódus saját implementációját) - ez a kulcs kizárólag az
+     * institution_secretary szerepkör ESETI, admin által adható
+     * felhatalmazásához kell (ld. AdminInstitutionAccessController::update()).
+     * A parent szerepkör soha nem kaphat semmilyen jogosultságot ehhez -
+     * a "role:" route middleware ettől függetlenül is kizárja.
+     */
+    public const PERMISSION_CANCEL = 'cancel-invoices';
+
     protected $fillable = [
         'institution_id',
         'child_id',

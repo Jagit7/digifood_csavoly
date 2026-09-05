@@ -30,6 +30,12 @@
             && in_array($cancellationInvoice->provider, $reloadablePdfProviders, true)
             && filled($cancellationInvoice->provider_invoice_id)
             && ! $hasLocalCancellationPdf;
+        // 2. FÁZIS - "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": a sztornó-gomb
+        // megjelenítése a backendben (InstitutionInvoiceController::cancel())
+        // amúgy is kikényszerített jogosultságot tükrözi - itt csak a UI-t
+        // rejtjük el, ha a felhasználónak nincs meg a jogosultsága, hogy ne
+        // kelljen szükségtelenül 403-at kapnia.
+        $canCancelInvoice = auth()->user()?->hasPermission(\App\Models\InstitutionInvoice::PERMISSION_CANCEL) ?? false;
     @endphp
 
     @include('layouts.partials.components.ui.page-header', [
@@ -98,6 +104,10 @@
                         <strong>{{ $periods['payment_period_label'] ?? 'Nem elérhető' }}</strong>
                     </div>
                     <div class="d-flex justify-content-between py-2 border-bottom">
+                        <span>Fizetési közlemény</span>
+                        <strong>{{ $statement?->payment_reference ?: 'Nem elérhető' }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between py-2 border-bottom">
                         <span>Étkezési időszak</span>
                         <strong>{{ $periods['meal_period_label'] ?? 'Nem elérhető' }}</strong>
                     </div>
@@ -150,6 +160,17 @@
                     <div class="mb-3">
                         <div class="text-muted small">Szülő / gondviselő</div>
                         <div class="fw-semibold">{{ $invoice->guardian?->full_name ?? 'Nem elérhető' }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="text-muted small">Ki indította</div>
+                        <div class="fw-semibold">
+                            @if($invoice->creator)
+                                {{ $invoice->creator->name }} ({{ $invoice->creator->role_label }})
+                            @else
+                                Rendszer (automatikus)
+                            @endif
+                        </div>
+                        <div class="small text-muted">{{ $invoice->created_at?->format('Y.m.d. H:i') }}</div>
                     </div>
                     <div class="mb-3">
                         <div class="text-muted small">Vevő neve</div>
@@ -253,7 +274,7 @@
                 @endif
             </div>
         </div>
-    @elseif($invoice->isCancellable())
+    @elseif($invoice->isCancellable() && $canCancelInvoice)
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h4 class="card-title mb-0">Sztornózás</h4>

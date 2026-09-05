@@ -555,6 +555,18 @@
                                     @endif
                                 </div>
 
+                                {{-- 2. FÁZIS - "F) KORÁBBI EGYENLEG": a korábbi tartozás/túlfizetés
+                                SOHA nem kerülhet rá az újonnan kiállított számlára (ld.
+                                InstitutionInvoiceService::createForParent() - kizárólag az
+                                invoiceable_amount-ot számlázza), ezért itt, a portálon
+                                egyértelműen jelezzük a szülőnek, hogy azt külön, az
+                                önkormányzatnál kell rendeznie. --}}
+                                @if((($card['previous_balance_display'] ?? 0) != 0) || (($card['overpayment_amount'] ?? 0) > 0))
+                                    <div class="alert alert-info">
+                                        Kérjük, korábbi tartozását vagy túlfizetését személyesen rendezze az önkormányzatnál.
+                                    </div>
+                                @endif
+
                                 @if($card['issues'] !== [])
                                     <div class="alert alert-warning">
                                         <ul class="mb-0 ps-3">
@@ -562,6 +574,94 @@
                                                 <li>{{ $issue }}</li>
                                             @endforeach
                                         </ul>
+                                    </div>
+                                @endif
+
+                                {{-- 2. FÁZIS - "C) SZÁMLA ELKÉSZÍTÉSE" / "D) FIZETÉSI KÖZLEMÉNY" /
+                                "E) BANKI ADATOK": ha még nincs számla és a service szerint
+                                felkínálható (ld. ParentInvoiceInitiationService::canOfferInvoicing()),
+                                gomb jelenik meg; ha már van számla, az egyedi fizetési közlemény és
+                                a banki adatok. A FIGYELEM: a kifejezett "invoice" VAGY "can_offer"
+                                ellenőrzés szándékos - a puszta "$card['invoicing'] ?? null" mindig
+                                igaz lenne (a tömb sosem null, ha idáig eljutottunk), ami minden
+                                gyermekkártyán egy üres dobozt jelenítene meg. --}}
+                                @if(($card['invoicing']['invoice'] ?? null) || ($card['invoicing']['can_offer'] ?? false))
+                                    <div class="rounded-4 border p-4 mt-3">
+                                        @php $df_invoice = $card['invoicing']['invoice'] ?? null; @endphp
+                                        @if($df_invoice)
+                                            @php $df_bankInfo = $card['invoicing']['bank_payment_info'] ?? null; @endphp
+                                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                                                <h6 class="mb-0">Számla elkészítve</h6>
+                                                <span class="badge {{ \App\Models\InstitutionInvoice::statusMeta($df_invoice->status)['class'] }}">
+                                                    {{ \App\Models\InstitutionInvoice::statusMeta($df_invoice->status)['label'] }}
+                                                </span>
+                                            </div>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <div class="df-settlement-label mb-1">Számlaszám</div>
+                                                    <div class="df-settlement-value">{{ $df_invoice->invoice_number ?: 'Feldolgozás alatt' }}</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div class="df-settlement-label mb-1">Fizetési közlemény</div>
+                                                    <div class="df-settlement-value">
+                                                        {{ $card['statement']->payment_reference ?: '—' }}
+                                                        @if($card['statement']->payment_reference)
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
+                                                                    onclick="navigator.clipboard.writeText('{{ $card['statement']->payment_reference }}')">
+                                                                <i class="fa-regular fa-copy"></i>
+                                                            </button>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            @if($df_bankInfo)
+                                                <div class="rounded-4 bg-light p-3 mt-3">
+                                                    <div class="df-settlement-label mb-2">Banki átutalás adatai</div>
+                                                    <div class="mb-1">
+                                                        Kedvezményezett: <strong>{{ $df_bankInfo['account_holder'] ?: '—' }}</strong>
+                                                    </div>
+                                                    <div class="mb-1 d-flex align-items-center gap-1">
+                                                        Bankszámlaszám: <strong>{{ $df_bankInfo['account_number'] ?: '—' }}</strong>
+                                                        @if($df_bankInfo['account_number'])
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                                    onclick="navigator.clipboard.writeText('{{ $df_bankInfo['account_number'] }}')">
+                                                                <i class="fa-regular fa-copy"></i>
+                                                            </button>
+                                                        @endif
+                                                    </div>
+                                                    <div class="mb-1">Összeg: <strong>{{ number_format($df_bankInfo['amount'] ?? 0, 0, ',', ' ') }} Ft</strong></div>
+                                                    <div>
+                                                        Közlemény: <strong>{{ $df_bankInfo['reference'] ?: '—' }}</strong>
+                                                        @if($df_bankInfo['reference'])
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                                    onclick="navigator.clipboard.writeText('{{ $df_bankInfo['reference'] }}')">
+                                                                <i class="fa-regular fa-copy"></i>
+                                                            </button>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                            @else
+                                                <div class="small text-body-secondary mt-3">
+                                                    A banki utaláshoz szükséges adatok jelenleg nem érhetők el - kérjük, vegye fel a kapcsolatot az intézménnyel.
+                                                </div>
+                                            @endif
+                                        @else
+                                            <h6 class="mb-2">Számla elkészítése</h6>
+                                            <p class="text-muted mb-3">
+                                                Elkészítheti a tárgyhavi elszámoláshoz tartozó számlát, amihez egyedi fizetési közleményt
+                                                és banki átutalási adatokat kap.
+                                            </p>
+                                            <form method="POST"
+                                                  action="{{ route('parent.monthly-settlements.invoice.store', $card['statement']) }}"
+                                                  onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+                                                @csrf
+                                                <button type="submit" class="btn btn-outline-primary">
+                                                    <i class="fa-solid fa-file-invoice me-2"></i>
+                                                    Számla elkészítése
+                                                </button>
+                                            </form>
+                                        @endif
                                     </div>
                                 @endif
 

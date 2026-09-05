@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Institution;
+use App\Models\InstitutionInvoice;
 use App\Models\User;
 use App\Models\InstitutionAdminInvitation;
 use Illuminate\Support\Facades\Hash;
@@ -87,9 +88,16 @@ class AdminInstitutionAccessController extends Controller
 
         $roleLabels = $this->roleLabels();
 
+        // 2. FÁZIS - "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": az institution_secretary
+        // szerepkör eseti, admin által adható jogosultsága a számla
+        // sztornózásához - ld. InstitutionInvoice::PERMISSION_CANCEL és
+        // App\Http\Controllers\Dashboard\InstitutionAdmin\Finance\
+        // InstitutionInvoiceController::cancel().
+        $canCancelInvoices = ! empty(($user->permissions ?? [])[InstitutionInvoice::PERMISSION_CANCEL] ?? false);
+
         return view(
             'dashboard.superadmin.admin_access.edit',
-            compact('user','institutions','selectedIds','roleLabels')
+            compact('user','institutions','selectedIds','roleLabels','canCancelInvoices')
         );
     }
 
@@ -106,6 +114,11 @@ class AdminInstitutionAccessController extends Controller
             'institutions' => ['nullable','array'],
             'institutions.*' => ['integer','exists:institutions,id'],
             'password' => ['nullable','confirmed','min:8'],
+            // 2. FÁZIS - csak institution_secretary esetén jelenik meg a
+            // felületen (ld. edit.blade.php), de a validációt attól
+            // függetlenül itt is elfogadjuk - a mezőt ténylegesen csak akkor
+            // vesszük figyelembe lent, ha a szerepkör institution_secretary.
+            'cancel_invoices' => ['nullable','boolean'],
         ];
 
         // A szuperadmin szerepkörét ezen a felületen nem lehet módosítani (sem
@@ -122,15 +135,28 @@ class AdminInstitutionAccessController extends Controller
             $role = $validated['role'];
         }
 
-        // forceFill(): a "role"/"is_active" mezők tudatosan nincsenek a
-        // User modell fillable listájában (jogosultság-eszkalációs
-        // védelem), itt viszont ez a jogszerű, kontrollált hely, ahol
-        // ezeket be kell tudni állítani.
+        // 2. FÁZIS - "7. SZÁMLA SZTORNÓ / JOGOSULTSÁG": a meglévő
+        // permissions JSON tömb megőrzésével, csak a cancel-invoices kulcs
+        // frissítésével - kizárólag institution_secretary szerepkörnél
+        // értelmezzük a checkboxot (super_admin/institution_admin esetén a
+        // User::hasPermission() már eddig is "igen"-t ad, a mezőnek náluk
+        // nincs hatása).
+        $permissions = $user->permissions ?? [];
+
+        if ($role === User::ROLE_INSTITUTION_SECRETARY) {
+            $permissions[InstitutionInvoice::PERMISSION_CANCEL] = $request->boolean('cancel_invoices');
+        }
+
+        // forceFill(): a "role"/"is_active"/"permissions" mezők tudatosan
+        // nincsenek a User modell fillable listájában (jogosultság-
+        // eszkalációs védelem), itt viszont ez a jogszerű, kontrollált
+        // hely, ahol ezeket be kell tudni állítani.
         $user->forceFill([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role' => $role,
             'is_active' => $request->boolean('is_active'),
+            'permissions' => $permissions,
             'password' => !empty($validated['password'])
                 ? Hash::make($validated['password'])
                 : $user->password,
