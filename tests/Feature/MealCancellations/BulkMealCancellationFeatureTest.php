@@ -357,11 +357,11 @@ class BulkMealCancellationFeatureTest extends TestCase
         $this->assertSame(1, $headcount['stats']['cancelled_meals']);
         $this->assertSame(1, $headcount['stats']['daily_eaters']);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
         $day = $first->monthlyPaymentStatements()
             ->where('year', 2026)
-            ->where('month', 8)
+            ->where('month', 9)
             ->firstOrFail()
             ->days()
             ->whereDate('date', '2026-09-01')

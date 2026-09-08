@@ -1239,6 +1239,12 @@ class PaymentObligationCalculatorService
         $sourcePaymentPeriod = $creditPeriod->copy()->startOfMonth();
 
         foreach ($lateCancellations as $cancellation) {
+            // An administrative record on a non-service day must never create
+            // credit, even if a historical statement contains a payable amount.
+            if (! $this->calendar->isServiceDay($institution->id, $cancellation->service_date)) {
+                continue;
+            }
+
             if ($this->isAdvanceCancellation($institution, $cancellation, $cancellation->service_date)) {
                 continue;
             }

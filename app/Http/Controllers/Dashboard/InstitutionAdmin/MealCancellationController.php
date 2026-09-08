@@ -112,10 +112,9 @@ class MealCancellationController extends Controller
         $institution = $this->currentAdminInstitution();
         $child = null;
 
-        if ($request->filled('child_id')) {
+        if ($request->filled('child_id') || $request->old('child_id')) {
             $child = Child::where('institution_id', $institution->id)
-                ->where('active', true)
-                ->findOrFail($request->integer('child_id'));
+                ->findOrFail($request->input('child_id', $request->old('child_id')));
         }
 
         $childSearch = trim((string) $request->input('child_search'));
@@ -124,7 +123,6 @@ class MealCancellationController extends Controller
         if (! $child && mb_strlen($childSearch) >= 2) {
             $childResults = Child::query()
                 ->where('institution_id', $institution->id)
-                ->where('active', true)
                 ->where(function ($query) use ($childSearch) {
                     $query->where('name', 'like', $childSearch.'%')
                         ->orWhere('educational_identifier', 'like', $childSearch.'%');
@@ -155,8 +153,7 @@ class MealCancellationController extends Controller
                 'required',
                 'integer',
                 Rule::exists('children', 'id')->where(fn ($query) => $query
-                    ->where('institution_id', $institution->id)
-                    ->where('active', true)),
+                    ->where('institution_id', $institution->id)),
             ],
             'mode' => ['required', Rule::in(['single', 'range', 'recurring'])],
             'service_date' => ['nullable', 'required_if:mode,single', 'date'],
@@ -166,6 +163,7 @@ class MealCancellationController extends Controller
             'starts_on' => ['nullable', 'required_if:mode,recurring', 'date'],
             'ends_on' => ['nullable', 'date', 'after_or_equal:starts_on'],
             'reason' => ['nullable', 'string', 'max:191'],
+            'admin_override' => ['sometimes', 'boolean'],
         ]);
 
         $child = Child::where('institution_id', $institution->id)->findOrFail($validated['child_id']);
@@ -177,7 +175,8 @@ class MealCancellationController extends Controller
                 $child,
                 $validated['service_date'],
                 auth()->user(),
-                $reason
+                $reason,
+                $request->boolean('admin_override')
             );
             $message = "A lemondás sikeresen rögzítve ({$count} étkezési nap).";
         } elseif ($validated['mode'] === 'range') {
@@ -187,7 +186,8 @@ class MealCancellationController extends Controller
                 $validated['date_from'],
                 $validated['date_to'],
                 auth()->user(),
-                $reason
+                $reason,
+                $request->boolean('admin_override')
             );
             $message = "A lemondás sikeresen rögzítve ({$count} étkezési nap).";
         } else {
@@ -198,7 +198,8 @@ class MealCancellationController extends Controller
                 $validated['starts_on'],
                 $validated['ends_on'] ?? null,
                 auth()->user(),
-                $reason
+                $reason,
+                $request->boolean('admin_override')
             );
             $message = 'A rendszeres lemondás sikeresen rögzítve.';
         }

@@ -7,6 +7,7 @@ use App\Models\Institution;
 use App\Models\MealCancellation;
 use App\Models\RecurringCancellationRule;
 use App\Models\User;
+use App\Support\AdminInstitutionContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -21,15 +22,10 @@ class MealCancellationService
         Child $child,
         string $date,
         User $creator,
-        ?string $reason
+        ?string $reason,
+        bool $adminOverride = false
     ): int {
-        if (! $this->calendar->isServiceDay($institution->id, $date)) {
-            throw ValidationException::withMessages([
-                'service_date' => 'A kiválasztott nap nem étkezési nap vagy intézményi szünetre esik.',
-            ]);
-        }
-
-        return $this->recordDates($institution, $child, [$date], $creator, $reason);
+        return $this->recordDates($institution, $child, [$date], $creator, $reason, $adminOverride);
     }
 
     public function recordRange(
@@ -38,7 +34,8 @@ class MealCancellationService
         string $from,
         string $to,
         User $creator,
-        ?string $reason
+        ?string $reason,
+        bool $adminOverride = false
     ): int {
         $start = CarbonImmutable::parse($from, $this->calendar->timezone())->startOfDay();
         $end = CarbonImmutable::parse($to, $this->calendar->timezone())->startOfDay();
@@ -61,7 +58,7 @@ class MealCancellationService
             ]);
         }
 
-        return $this->recordDates($institution, $child, $dates, $creator, $reason);
+        return $this->recordDates($institution, $child, $dates, $creator, $reason, $adminOverride);
     }
 
     public function recordRecurring(
@@ -71,9 +68,9 @@ class MealCancellationService
         string $startsOn,
         ?string $endsOn,
         User $creator,
-        ?string $reason
+        ?string $reason,
+        bool $adminOverride = false
     ): RecurringCancellationRule {
-        $window = $this->configuredWindow($institution->id);
         $start = CarbonImmutable::parse($startsOn, $this->calendar->timezone())->startOfDay();
         $end = $endsOn
             ? CarbonImmutable::parse($endsOn, $this->calendar->timezone())->startOfDay()
@@ -91,11 +88,7 @@ class MealCancellationService
             ]);
         }
 
-        if ($firstOccurrence->lt($window['earliest_cancellable_day'])) {
-            throw ValidationException::withMessages([
-                'starts_on' => 'A rendszeres lemondás első alkalma már a lemondási határidőn kívül esik.',
-            ]);
-        }
+        $reason = $this->authorizeDates($institution, $child, [$firstOccurrence->toDateString()], $creator, $reason, $adminOverride);
 
         $overlapExists = RecurringCancellationRule::query()
             ->where('institution_id', $institution->id)
@@ -254,23 +247,15 @@ class MealCancellationService
         Child $child,
         array $dates,
         User $creator,
-        ?string $reason
+        ?string $reason,
+        bool $adminOverride = false
     ): int {
-        $window = $this->configuredWindow($institution->id);
         $dates = collect($dates)
             ->map(fn ($date) => CarbonImmutable::parse($date)->toDateString())
             ->unique()
             ->sort()
             ->values();
-        $tooEarly = $dates->filter(fn ($date) => $date < $window['earliest_cancellable_day']->toDateString()
-        );
-
-        if ($tooEarly->isNotEmpty()) {
-            throw ValidationException::withMessages([
-                'service_date' => 'A következő lemondható étkezési nap: '
-                    .$window['earliest_cancellable_day']->format('Y.m.d.'),
-            ]);
-        }
+        $reason = $this->authorizeDates($institution, $child, $dates->all(), $creator, $reason, $adminOverride);
 
         $blockedDates = $this->classCancelledDates($institution->id, $child->id, $dates->all());
 
@@ -291,9 +276,77 @@ class MealCancellationService
             ]);
         }
 
-        $this->createActiveCancellations($institution, $child, $dates->all(), $creator, $reason);
+        // Reuse revoked rows: the child/date unique key and stable cancellation id
+        // also prevent a second financial credit for the same cancellation.
+        DB::transaction(function () use ($institution, $child, $dates, $creator, $reason) {
+            foreach ($dates as $date) {
+                $existing = MealCancellation::where('child_id', $child->id)->whereDate('service_date', $date)->lockForUpdate()->first();
+                if ($existing?->status === MealCancellation::STATUS_ACTIVE) {
+                    throw ValidationException::withMessages(['service_date' => 'Erre a napra már van egyéni lemondás.']);
+                }
+                DB::table('meal_cancellations')->updateOrInsert(
+                    $existing ? ['id' => $existing->id] : ['child_id' => $child->id, 'service_date' => $date],
+                    [
+                        'institution_id' => $institution->id,
+                        'source' => MealCancellation::SOURCE_ADMIN,
+                        'status' => MealCancellation::STATUS_ACTIVE,
+                        'reason' => $this->reason($reason),
+                        'created_by' => $creator->id,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                        'revoked_by' => null,
+                        'revoked_at' => null,
+                    ]
+                );
+            }
+        });
 
         return $dates->count();
+    }
+
+    private function authorizeDates(
+        Institution $institution,
+        Child $child,
+        array $dates,
+        User $creator,
+        ?string $reason,
+        bool $adminOverride
+    ): ?string {
+        abort_unless((int) $child->institution_id === (int) $institution->id, 403);
+        $context = app(AdminInstitutionContext::class);
+        $isAdmin = $context->availableInstitutions($creator)->contains('id', $institution->id)
+            && $context->roleFor($creator, $institution) === User::ROLE_INSTITUTION_ADMIN;
+        abort_if($adminOverride && ! $isAdmin, 403);
+
+        $now = $this->calendar->now();
+        $blocked = collect($dates)->filter(fn ($date) => ! $this->calendar
+            ->cancellationAvailability($institution->id, $date, $now)['cancellable']);
+
+        if ($blocked->isEmpty()) {
+            return $reason;
+        }
+
+        if (! $isAdmin) {
+            throw ValidationException::withMessages(['service_date' => 'A lemondási határidő lejárt.']);
+        }
+
+        if (! $adminOverride) {
+            $past = $blocked->contains(fn ($date) => $date < $now->toDateString());
+            throw ValidationException::withMessages([
+                'admin_override' => $past
+                    ? 'Ez a nap már elmúlt és a normál lemondási határidő is lejárt. A módosítás hatással lehet a pénzügyi elszámolásra. Biztosan folytatod?'
+                    : 'Ez a nap a normál lemondási szabályok szerint már nem módosítható. Biztosan rögzíted adminisztrátori felülbírálással?',
+            ])->errorBag('adminOverride');
+        }
+
+        $auditReason = '[admin_override=true] '.trim((string) $reason);
+        if (mb_strlen($auditReason) > 191) {
+            throw ValidationException::withMessages([
+                'reason' => 'Felülbírálás esetén a megjegyzés legfeljebb 169 karakter lehet az auditjelölés mellett.',
+            ]);
+        }
+
+        return $auditReason;
     }
 
     private function configuredWindow(int $institutionId): array

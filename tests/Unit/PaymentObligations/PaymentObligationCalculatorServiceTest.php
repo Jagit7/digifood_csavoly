@@ -32,6 +32,64 @@ class PaymentObligationCalculatorServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    public static function adminOverrideCreditCases(): array
+    {
+        return [
+            'payable day' => [0, '2026-09-07', 1000],
+            'free day' => [100, '2026-09-07', 0],
+            'weekend' => [0, '2026-09-06', 0],
+            'holiday' => [0, '2026-08-20', 0],
+            'school break' => [0, '2026-09-07', 0, true],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('adminOverrideCreditCases')]
+    public function test_confirmed_admin_override_uses_existing_payable_amount_and_never_duplicates_credit(
+        int $discount,
+        string $date,
+        int $expectedCredit,
+        bool $schoolBreak = false
+    ): void {
+        \Carbon\CarbonImmutable::setTestNow(\Carbon\CarbonImmutable::parse('2026-10-05 10:00', 'Europe/Budapest'));
+        Carbon::setTestNow(Carbon::parse('2026-10-05 10:00', 'Europe/Budapest'));
+        try {
+            [$institution, $child, $admin] = $this->seedBasicParticipant($discount);
+            if ($schoolBreak) {
+                SchoolBreak::create(['institution_id' => $institution->id, 'title' => 'Break', 'type' => 'school_break', 'start_date' => $date, 'end_date' => $date]);
+            }
+            $service = app(PaymentObligationCalculatorService::class);
+            $sourcePeriod = Carbon::parse($date)->startOfMonth();
+            $creditPeriod = $sourcePeriod->copy()->addMonth();
+            $service->recalculateMonth($institution, $sourcePeriod);
+            $day = MonthlyPaymentDay::whereHas('statement', fn ($query) => $query->where('child_id', $child->id))
+                ->whereDate('date', $date)->firstOrFail();
+            if ($date !== '2026-08-20') {
+                $this->assertSame($expectedCredit, $day->payable_amount);
+            }
+
+            app(\App\Services\MealCancellationService::class)->recordSingle($institution, $child, $date, $admin, null, true);
+            $cancellation = MealCancellation::where('child_id', $child->id)->firstOrFail();
+            $service->recalculateMonth($institution, $creditPeriod);
+            $service->recalculateMonth($institution, $creditPeriod);
+
+            $statement = $child->monthlyPaymentStatements()->where('year', $creditPeriod->year)->where('month', $creditPeriod->month)->firstOrFail();
+            $this->assertSame($expectedCredit, $statement->previous_cancellation_credit);
+            $credits = FinancialAdjustment::where('source_type', MealCancellation::class)->where('source_id', $cancellation->id);
+            $this->assertSame($expectedCredit > 0 ? 1 : 0, $credits->count());
+            $this->assertSame($expectedCredit, (int) $credits->sum('amount'));
+
+            $cancellation->update(['status' => MealCancellation::STATUS_REVOKED]);
+            app(\App\Services\MealCancellationService::class)->recordSingle($institution, $child, $date, $admin, null, true);
+            $service->recalculateMonth($institution, $creditPeriod);
+            $this->assertSame(1, MealCancellation::where('child_id', $child->id)->count());
+            $this->assertSame($expectedCredit > 0 ? 1 : 0, $credits->count());
+            $this->assertSame($expectedCredit, (int) $credits->sum('amount'));
+        } finally {
+            \Carbon\CarbonImmutable::setTestNow();
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_normal_full_price_day_is_payable(): void
     {
         [$institution, $child] = $this->seedBasicParticipant(0);

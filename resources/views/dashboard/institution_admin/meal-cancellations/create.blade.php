@@ -15,8 +15,8 @@
     @if(!$window['configured'])
         <div class="alert alert-warning">
             <strong>Nincs beállítva lemondási határidő.</strong>
-            Lemondás rögzítése előtt add meg az intézményi határidőt a
-            <a href="{{ route('dashboard.institution.reference-data.index') }}">Kedvezmények és szabályok</a> oldalon.
+            A normál lemondási határidőt a
+            <a href="{{ route('dashboard.institution.reference-data.index') }}">Kedvezmények és szabályok</a> oldalon adhatod meg. Adminisztrátori felülbírálással megerősítés után rögzíthetsz lemondást.
         </div>
     @else
         <div class="card mb-4">
@@ -30,7 +30,7 @@
                     <strong>{{ $window['next_service_day']?->format('Y.m.d.') ?? 'Nincs' }}</strong>
                 </div>
                 <div>
-                    <div class="text-muted small">Legkorábban lemondható nap</div>
+                    <div class="text-muted small">Normál szabály szerinti legkorábbi nap</div>
                     <strong>{{ $window['earliest_cancellable_day']?->format('Y.m.d.') ?? 'Nincs' }}</strong>
                 </div>
             </div>
@@ -110,7 +110,7 @@
                     <div class="row">
                         <div class="col-lg-4 mb-3">
                             <label for="mode" class="form-label">Lemondás típusa</label>
-                            <select name="mode" id="mode" class="form-control" @disabled(!$window['configured'])>
+                            <select name="mode" id="mode" class="form-control">
                                 <option value="single" @selected(old('mode', 'single') === 'single')>Egy nap</option>
                                 <option value="range" @selected(old('mode') === 'range')>Többnapos időszak</option>
                                 <option value="recurring" @selected(old('mode') === 'recurring')>Rendszeres, heti lemondás</option>
@@ -122,7 +122,7 @@
                         <div class="row"><div class="col-lg-4 mb-3">
                             <label for="service_date" class="form-label">Étkezési nap</label>
                             <input type="date" name="service_date" id="service_date" class="form-control"
-                                   min="{{ $window['earliest_cancellable_day']?->toDateString() }}" value="{{ old('service_date') }}">
+                                   value="{{ old('service_date') }}">
                         </div></div>
                     </div>
 
@@ -131,12 +131,12 @@
                             <div class="col-lg-4 mb-3">
                                 <label for="date_from" class="form-label">Időszak kezdete</label>
                                 <input type="date" name="date_from" id="date_from" class="form-control"
-                                       min="{{ $window['earliest_cancellable_day']?->toDateString() }}" value="{{ old('date_from') }}">
+                                       value="{{ old('date_from') }}">
                             </div>
                             <div class="col-lg-4 mb-3">
                                 <label for="date_to" class="form-label">Időszak vége</label>
                                 <input type="date" name="date_to" id="date_to" class="form-control"
-                                       min="{{ $window['earliest_cancellable_day']?->toDateString() }}" value="{{ old('date_to') }}">
+                                       value="{{ old('date_to') }}">
                             </div>
                         </div>
                         <div class="small text-muted mb-3">
@@ -157,7 +157,7 @@
                             <div class="col-lg-3 mb-3">
                                 <label for="starts_on" class="form-label">Kezdőnap</label>
                                 <input type="date" name="starts_on" id="starts_on" class="form-control"
-                                       min="{{ $window['earliest_cancellable_day']?->toDateString() }}" value="{{ old('starts_on') }}">
+                                       value="{{ old('starts_on') }}">
                             </div>
                             <div class="col-lg-3 mb-3">
                                 <label for="ends_on" class="form-label">Végdátum</label>
@@ -182,11 +182,43 @@
 
                     <div class="d-flex justify-content-end gap-2">
                         <a href="{{ route('dashboard.institution.meal-cancellations.index') }}" class="btn btn-light">Mégsem</a>
-                        <button type="submit" class="btn btn-primary" @disabled(!$window['configured'] || !$window['earliest_cancellable_day'])>
+                        <button type="submit" class="btn btn-primary">
                             <i class="fa-solid fa-save me-1"></i>Lemondás rögzítése
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    @endif
+
+    @if($child && $errors->getBag('adminOverride')->has('admin_override'))
+        <div class="modal fade" id="admin-override-modal" tabindex="-1" aria-labelledby="admin-override-title" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-warning">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title" id="admin-override-title">Adminisztrátori felülbírálás</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>{{ $errors->getBag('adminOverride')->first('admin_override') }}</p>
+                        <strong>{{ $child->name }}</strong>
+                        <div>{{ old('service_date') ?: (old('date_from') ?: old('starts_on')) }}
+                            @if(old('mode') === 'range') – {{ old('date_to') }} @endif
+                            @if(old('mode') === 'recurring') – {{ old('ends_on') ?: 'visszavonásig' }} ({{ $weekdays[(int) old('weekday')] ?? '' }}) @endif
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Mégse</button>
+                        <form method="POST" action="{{ route('dashboard.institution.meal-cancellations.store') }}">
+                            @csrf
+                            @foreach(['child_id', 'mode', 'service_date', 'date_from', 'date_to', 'weekday', 'starts_on', 'ends_on', 'reason'] as $field)
+                                <input type="hidden" name="{{ $field }}" value="{{ old($field) }}">
+                            @endforeach
+                            <input type="hidden" name="admin_override" value="1">
+                            <button type="submit" class="btn btn-warning">Igen, rögzítem a lemondást</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     @endif
@@ -196,6 +228,8 @@
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const overrideModal = document.getElementById('admin-override-modal');
+    if (overrideModal) bootstrap.Modal.getOrCreateInstance(overrideModal).show();
     const mode = document.getElementById('mode');
     if (!mode) return;
 
