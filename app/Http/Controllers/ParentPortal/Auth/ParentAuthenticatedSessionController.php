@@ -4,6 +4,7 @@ namespace App\Http\Controllers\ParentPortal\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\ParentPortal\ParentAccountActivationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +14,10 @@ use Illuminate\View\View;
 
 class ParentAuthenticatedSessionController extends Controller
 {
+    public function __construct(
+        private readonly ParentAccountActivationService $activationService
+    ) {}
+
     public function create(): View|RedirectResponse
     {
         if (Auth::check() && Auth::user()?->role === User::ROLE_PARENT && Auth::user()?->is_active) {
@@ -60,6 +65,14 @@ class ParentAuthenticatedSessionController extends Controller
         if (! $user->is_active) {
             return $this->reject($request, 'A felhasználói fiók inaktív. Kérjük, vegye fel a kapcsolatot az intézménnyel.');
         }
+
+        // Önjavítás: ha bármelyik intézmény időközben (az első aktiválás
+        // előtt vagy után) egy másik, még hozzá nem kapcsolt guardian-
+        // rekordot hozott létre ugyanezzel az e-mail címmel, minden sikeres
+        // bejelentkezéskor automatikusan hozzákapcsoljuk a fiókjához - így
+        // a szülőnek nem kell semmit tennie ahhoz, hogy egy újonnan
+        // hozzáadott gyereke is megjelenjen nála.
+        $this->activationService->linkOrphanedGuardiansForEmail($user->email);
 
         if (! $user->guardians()->where('active', true)->exists()) {
             return $this->reject($request, 'Ehhez a felhasználóhoz nincs aktív gondviselői kapcsolat rendelve.');

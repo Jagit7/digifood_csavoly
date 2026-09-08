@@ -17,7 +17,7 @@ class MonthlyPaymentSummaryExportService
     public function export(Collection $statements, Carbon $period): BinaryFileResponse
     {
         $paymentPeriod = $period->copy()->startOfMonth();
-        $mealPeriod = $paymentPeriod->copy()->addMonth();
+        $mealPeriod = $paymentPeriod->copy();
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Teljes havi lista');
@@ -46,7 +46,7 @@ class MonthlyPaymentSummaryExportService
         $headers = array_merge($headers, [
             'Étkezési napok',
             'Korábbi egyenleg',
-            'Következő havi alap',
+            'Aktuális havi alap',
             'Előző havi jóváírás',
             $isSplitExport ? 'Zsárica fizetendő' : 'Havi fizetendő',
             $isSplitExport ? 'Óvodai fizetendő' : 'Óvodai rész (nincs használatban)',

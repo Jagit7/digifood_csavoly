@@ -751,6 +751,7 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard.')->group(functi
                     ->whereNumber('month')
                     ->name('export');
                 Route::put('/{statement}/invoice', [PaymentObligationController::class, 'updateInvoice'])->name('invoice.update');
+                Route::post('/{statement}/quick-pay', [PaymentObligationController::class, 'quickPay'])->name('quick-pay');
                 Route::put('/{statement}/days/{day}', [PaymentObligationController::class, 'updateDay'])->name('days.update');
                 Route::post('/{statement}/days/{day}/reset', [PaymentObligationController::class, 'resetDay'])->name('days.reset');
                 Route::get('/{statement}/adjustments', [FinancialAdjustmentController::class, 'index'])->name('adjustments.index');

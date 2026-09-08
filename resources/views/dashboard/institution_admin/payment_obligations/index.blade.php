@@ -1,7 +1,5 @@
 @extends('layouts.superadmin')
-
 @section('title', 'Fizetési kötelezettségek')
-
 @push('styles')
 <style>
     .df-payment-table-wrap { overflow-x: auto; border-radius: 1rem; }
@@ -39,16 +37,8 @@
     .df-billing-actions { display: flex; flex-wrap: wrap; gap: .25rem; }
 </style>
 @endpush
-
 @php
-    // Csávolyi (és minden más, kizárólag "legacy" fizetési modellt használó)
-    // intézménynél NEM szabad a másik intézmény "kétkomponensű" (Zsárica
-    // Alapítvány / óvodai) számlázási logikájából származó oszlopokat és
-    // címkéket megjeleníteni - ld. felhasználói kérés. Az $isSplit flag
-    // ugyanazt az InstitutionSetting::usesSplitManualTransfer() ellenőrzést
-    // használja, mint amit a show.blade.php (MonthlyPaymentStatement::usesSplitPaymentModel())
-    // már helyesen alkalmaz - itt csak intézményi szinten, mert ez a lista
-    // több gyermek/statement sorát egyszerre jeleníti meg.
+
     $isSplit = $institutionSetting->usesSplitManualTransfer();
     $periodLabel = $period->translatedFormat('Y. F');
     $mealPeriodLabel = $periods['meal_period_label'];
@@ -64,7 +54,6 @@
         ? 'bg-success'
         : (($isPartiallyClosed ?? false) ? 'bg-info text-dark' : 'bg-warning text-dark');
 @endphp
-
 @section('content')
 <div class="container-fluid">
     {{-- Legacy strings kept for file-content tests: RĂ©szben lezĂˇrt hĂłnap | Nyitott hĂłnap | HĂłnap ĂşjranyitĂˇsa --}}
@@ -72,7 +61,6 @@
         'title' => 'Fizetési kötelezettségek',
         'subtitle' => $institution->name . ' · ' . $periodLabel,
     ])
-
     <div class="payment-period-hero mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
             <div>
@@ -84,7 +72,6 @@
                     Fizetési hónap: {{ ucfirst($periodLabel) }} · Étkezési időszak: {{ ucfirst($mealPeriodLabel) }} · Jóváírási időszak: {{ ucfirst($creditPeriodLabel) }}
                 </div>
             </div>
-
             <div class="payment-period-status">
                 <span class="badge rounded-pill {{ $statusBadgeClass }} px-3 py-2">
                     @if($isClosed ?? false)
@@ -99,7 +86,6 @@
             </div>
         </div>
     </div>
-
     <div class="row">
         @include('layouts.partials.components.ui.stats-card', [
             'title' => 'Gyermekek',
@@ -109,7 +95,7 @@
             'color' => 'blue',
         ])
         @include('layouts.partials.components.ui.stats-card', [
-            'title' => 'Következő havi napok',
+            'title' => 'Aktuális havi napok',
             'value' => number_format($stats['planned_meal_days'], 0, ',', ' ') . ' nap',
             'subtitle' => 'Jóváírt lemondások: ' . number_format($stats['previous_month_cancelled_days'], 0, ',', ' ') . ' nap',
             'icon' => 'fa-solid fa-file-invoice-dollar',
@@ -148,7 +134,6 @@
             'color' => $stats['issues'] > 0 ? 'orange' : 'green',
         ])
     </div>
-
     <div class="card mb-4">
         <div class="card-header">
             <h4 class="card-title mb-0">Keresés és szűrés</h4>
@@ -230,7 +215,6 @@
                     </div>
                 </div>
             </form>
-
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mt-3">
                 @include('layouts.partials.components.ui.period-navigation', [
                     'items' => [
@@ -241,505 +225,1086 @@
                             'icon' => 'fa-solid fa-chevron-left',
                             'icon_position' => 'left',
                         ],
+
                         [
+
                             'url' => route('dashboard.institution.payment-obligations.index', ['month' => $nextMonth]),
+
                             'label' => 'Következő hónap',
+
                             'value' => $nextMonthLabel,
+
                             'icon' => 'fa-solid fa-chevron-right',
+
                             'icon_position' => 'right',
+
                         ],
+
                     ],
+
                 ])
 
                 <div class="d-flex flex-wrap gap-2">
+
                     <form method="POST"
+
                           action="{{ route('dashboard.institution.payment-obligations.recalculate') }}"
+
                           class="confirm-form"
+
                           data-title="Biztosan újra szeretné számolni a havi kimutatást?"
+
                           data-text="A rendszer a kiválasztott fizetési hónap tervezet állapotú tételeit számolja újra, a hozzá tartozó saját havi étkezési időszakkal és előző havi jóváírásokkal."
+
                           data-confirm-button-text="Igen, újraszámolom">
+
                         @csrf
+
                         <input type="hidden" name="month" value="{{ $period->format('Y-m') }}">
+
                         <button type="submit"
+
                                 class="btn btn-warning shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action"
+
                                 @disabled(!($isOpen ?? true))>
+
                             <i class="fa-solid fa-rotate me-2"></i>Újraszámítás
+
                         </button>
+
                     </form>
 
                     <form method="POST"
+
                           action="{{ route('dashboard.institution.payment-obligations.close') }}"
+
                           class="confirm-form"
+
                           data-title="Biztosan le szeretné zárni ezt a hónapot?"
+
                           data-text="Lezárás után a kiválasztott fizetési hónap elszámolása csak újranyitással módosítható."
+
                           data-confirm-button-text="Igen, lezárom">
+
                         @csrf
+
                         <input type="hidden" name="month" value="{{ $period->format('Y-m') }}">
+
                         <button type="submit"
+
                                 class="btn btn-success shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action"
+
                                 @disabled(!($isOpen ?? true) || (int) ($closeSummary['issue_count'] ?? 0) > 0)>
+
                             <i class="fa-solid fa-lock me-2"></i>Havi lezárás
+
                         </button>
+
                     </form>
 
                     @if(($statementCount ?? 0) > 0)
+
                         <a href="{{ route('dashboard.institution.payment-obligations.monthly-summary.export', ['year' => $period->year, 'month' => $period->month]) }}"
+
                            class="btn btn-success shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action">
+
                             <i class="fa-solid fa-file-excel me-2"></i>Teljes lista Excel-export
+
                         </a>
+
                     @else
+
                         <button type="button"
+
                                 class="btn btn-success shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action"
+
                                 disabled>
+
                             <i class="fa-solid fa-file-excel me-2"></i>Teljes lista Excel-export
+
                         </button>
+
                     @endif
 
                     @if(($statementCount ?? 0) > 0)
+
                         <a href="{{ route('dashboard.institution.payment-obligations.monthly-summary.print', ['year' => $period->year, 'month' => $period->month]) }}"
+
                            target="_blank"
+
                            class="btn btn-primary shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action">
+
                             <i class="fa-solid fa-print me-2"></i>Nyomtatható lista
+
                         </a>
+
                     @else
+
                         <button type="button"
+
                                 class="btn btn-primary shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action"
+
                                 disabled>
+
                             <i class="fa-solid fa-print me-2"></i>Nyomtatható lista
+
                         </button>
+
                     @endif
 
                     @if(($isClosed ?? false) || ($isPartiallyClosed ?? false))
+
                         <button type="button"
+
                                 class="btn btn-danger shadow-sm rounded-3 px-3 py-2 d-inline-flex align-items-center payment-toolbar-action"
+
                                 data-bs-toggle="modal"
+
                                 data-bs-target="#reopenModal">
+
                             <i class="fa-solid fa-lock-open me-2"></i>Hónap újranyitása
+
                         </button>
+
                     @endif
+
                 </div>
+
             </div>
+
         </div>
+
     </div>
 
     <div class="row">
+
         <div class="col-12">
+
             <div class="card border-0 shadow-sm rounded-4 mb-4">
+
                 <div class="card-header bg-white border-0 px-4 pt-4 pb-2">
+
                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+
                         <div>
+
                             <h4 class="card-title mb-1">Lezárási ellenőrzés</h4>
+
                             <p class="text-muted mb-0">A hónap lezárását akadályozó hibák és hiányzó adatok</p>
+
                         </div>
 
                         @if((int) ($closeSummary['issue_count'] ?? 0) > 0)
+
                             <span class="badge rounded-pill bg-danger-subtle text-danger px-3 py-2">
+
                                 <i class="fa-solid fa-triangle-exclamation me-1"></i>Javítás szükséges
+
                             </span>
+
                         @else
+
                             <span class="badge rounded-pill bg-success-subtle text-success px-3 py-2">
+
                                 <i class="fa-solid fa-circle-check me-1"></i>Lezárható
+
                             </span>
+
                         @endif
+
                     </div>
+
                 </div>
 
                 <div class="card-body p-4">
+
                     <div class="alert alert-light border mb-4">
+
                         <div><strong>Lezárandó fizetési hónap:</strong> {{ ucfirst($periodLabel) }}</div>
+
                         <div><strong>Kiszámított étkezési időszak:</strong> {{ ucfirst($mealPeriodLabel) }}</div>
+
                         <div><strong>Levonandó jóváírási időszak:</strong> {{ ucfirst($creditPeriodLabel) }}</div>
+
                     </div>
+
                     <div class="row g-3">
+
                         <div class="col-12 col-md-4">
+
                             <div class="h-100 border rounded-4 p-4 {{ (int) ($closeSummary['issue_count'] ?? 0) > 0 ? 'bg-danger-subtle border-danger-subtle' : 'bg-success-subtle border-success-subtle' }}">
+
                                 <div class="d-flex align-items-center gap-3">
+
                                     <div class="d-flex align-items-center justify-content-center rounded-3 {{ (int) ($closeSummary['issue_count'] ?? 0) > 0 ? 'bg-danger text-white' : 'bg-success text-white' }}"
+
                                          style="width:48px;height:48px;flex:0 0 48px;">
+
                                         <i class="fa-solid {{ (int) ($closeSummary['issue_count'] ?? 0) > 0 ? 'fa-triangle-exclamation' : 'fa-circle-check' }} fs-5"></i>
+
                                     </div>
+
                                     <div>
+
                                         <div class="text-muted small mb-1">Hibás vagy hiányos rekordok</div>
+
                                         <div class="fs-3 fw-bold {{ (int) ($closeSummary['issue_count'] ?? 0) > 0 ? 'text-danger' : 'text-success' }}">
+
                                             {{ (int) ($closeSummary['issue_count'] ?? 0) }}
+
                                         </div>
+
                                     </div>
+
                                 </div>
+
                             </div>
+
                         </div>
 
                         <div class="col-12 col-md-4">
+
                             <div class="h-100 border rounded-4 p-4 bg-light">
+
                                 <div class="d-flex align-items-center gap-3">
+
                                     <div class="d-flex align-items-center justify-content-center rounded-3 bg-warning-subtle text-warning"
+
                                          style="width:48px;height:48px;flex:0 0 48px;">
+
                                         <i class="fa-solid fa-utensils fs-5"></i>
+
                                     </div>
+
                                     <div>
+
                                         <div class="text-muted small mb-1">Nincs aktív menücsomag</div>
+
                                         <div class="fs-3 fw-bold">{{ (int) ($closeSummary['missing_meal_packages'] ?? 0) }}</div>
+
                                     </div>
+
                                 </div>
+
                             </div>
+
                         </div>
 
                         <div class="col-12 col-md-4">
+
                             <div class="h-100 border rounded-4 p-4 bg-light">
+
                                 <div class="d-flex align-items-center gap-3">
+
                                     <div class="d-flex align-items-center justify-content-center rounded-3 bg-warning-subtle text-warning"
+
                                          style="width:48px;height:48px;flex:0 0 48px;">
+
                                         <i class="fa-solid fa-tags fs-5"></i>
+
                                     </div>
+
                                     <div>
+
                                         <div class="text-muted small mb-1">Nincs érvényes ár vagy kedvezmény</div>
+
                                         <div class="fs-3 fw-bold">{{ (int) ($closeSummary['missing_price_or_discount'] ?? 0) }}</div>
+
                                     </div>
+
                                 </div>
+
                             </div>
+
                         </div>
+
                     </div>
+
                 </div>
+
             </div>
+
         </div>
 
     </div>
 
     <div class="card">
+
         <div class="card-header d-flex justify-content-between align-items-center">
+
             <h4 class="card-title mb-0">Havi kimutatás</h4>
+
             <span class="text-muted">Találatok: {{ $statements->total() }} · Étkezési napok: {{ ucfirst($mealPeriodLabel) }}</span>
+
         </div>
+
         <div class="card-body">
+
             @if($statements->count())
+
                 <div class="alert alert-light border">
+
                     <div><strong>Fizetési hónap:</strong> {{ ucfirst($periodLabel) }}</div>
+
                     <div><strong>Étkezési időszak:</strong> {{ ucfirst($mealPeriodLabel) }}</div>
+
                     <div><strong>Jóváírási időszak:</strong> {{ ucfirst($creditPeriodLabel) }}</div>
+
                 </div>
+
                 <div class="df-payment-table-wrap">
+
                     <table class="table table-bordered align-middle df-payment-table">
+
                         <thead>
+
                         <tr>
+
                             <th class="df-sticky-left" style="min-width:210px;">Gyermek neve</th>
+
                             <th class="df-sticky-left-2">Műveletek</th>
+
                             <th style="min-width:120px;">Osztály</th>
+
                             <th>Menücsomag</th>
+
                             <th>Kedvezmény</th>
+
                             @foreach(range(1, $periods['meal_period_days_in_month']) as $dayNumber)
+
                                 <th class="df-payment-day-col">{{ $dayNumber }}</th>
+
                             @endforeach
+
                             <th>Étkezési napok</th>
-                            <th>Következő havi alap</th>
+
+                            <th>Aktuális havi alap</th>
+
                             <th>Előző havi jóváírás</th>
+
                             @if($isSplit)
+
                                 <th>Zsárica fizetendő</th>
+
                                 <th>Óvodai fizetendő</th>
+
                             @else
+
                                 <th>Aktuális havi fizetendő</th>
+
                             @endif
+
                             <th>Befizetve</th>
+
                             @if($isSplit)
+
                                 <th>Zsárica egyenleg</th>
+
                                 <th>Óvodai egyenleg</th>
+
                                 <th>Összesített egyenleg</th>
+
                             @else
+
                                 <th>Korábbi tartozás/túlfizetés</th>
+
                             @endif
+
                             <th>Fizetendő összesen (nettó)</th>
+
                             <th>ÁFával növelt (bruttó)</th>
+
                             <th class="df-sticky-right df-billing-cell">Számlázás</th>
+
                         </tr>
+
                         </thead>
+
                         <tbody>
+
                         @foreach($statements as $statement)
+
                             @php
+
                                 $daysByDate = $statement->days->keyBy(fn ($day) => $day->date->toDateString());
+
                                 $hasInvoiceArtifacts = filled($statement->invoice_number)
+
                                     || filled($statement->invoice_url)
+
                                     || filled($statement->invoice_pdf_path)
+
                                     || filled($statement->invoice_status)
+
                                     || filled($statement->invoice_provider)
+
                                     || filled($statement->payment_status);
+
                                 $showNotRequired = $statement->invoiceable_amount <= 0 && ! $hasInvoiceArtifacts;
+
                                 $invoiceStatusLabels = [
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::INVOICE_STATUS_DRAFT => 'Piszkozat',
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::INVOICE_STATUS_ISSUED => 'Kiállítva',
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::INVOICE_STATUS_CANCELLED => 'Sztornózva',
+
                                 ];
+
                                 $paymentStatusLabels = [
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::PAYMENT_STATUS_PENDING => ['label' => 'Fizetésre vár', 'class' => 'bg-warning text-dark'],
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::PAYMENT_STATUS_PAID => ['label' => 'Kifizetve', 'class' => 'bg-success'],
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::PAYMENT_STATUS_FAILED => ['label' => 'Sikertelen', 'class' => 'bg-danger'],
+
                                     \App\Models\PaymentObligation\MonthlyPaymentStatement::PAYMENT_STATUS_REFUNDED => ['label' => 'Visszatérítve', 'class' => 'bg-secondary'],
+
                                 ];
+
                                 $paymentStatus = $paymentStatusLabels[$statement->payment_status] ?? null;
+
                                 $renderedInvoiceModule = false;
+
                                 $financialSummary = (array) ($statement->financial_summary ?? []);
+
                                 $componentPaidAmount = (int) (($financialSummary['foundation_paid'] ?? 0) + ($financialSummary['kindergarten_paid'] ?? 0));
+
+                                // A "gyors, pontos összegű befizetés" gomb a jelenleg ténylegesen
+
+                                // fennmaradó fizetendő összeget (financial_summary['foundation_remaining'])
+
+                                // veszi alapul - ugyanazt az értéket, amit a szerver mentéskor is
+
+                                // újraszámol (lásd PaymentObligationController::quickPay()). Csak a
+
+                                // sima (nem kétbankszámlás) elszámolásoknál érhető el.
+
+                                $quickPayRemaining = (int) ($financialSummary['foundation_remaining'] ?? 0);
+
                             @endphp
+
                             <tr>
+
                                 <td class="df-sticky-left">
+
                                     <div class="d-flex align-items-center gap-1 text-nowrap">
+
                                         <strong>{{ $statement->child->name }}</strong>
+
                                         <span class="badge {{ $statement->status === \App\Models\PaymentObligation\MonthlyPaymentStatement::STATUS_CLOSED ? 'badge-secondary' : 'badge-warning' }} light">
+
                                             {{ $statement->status === \App\Models\PaymentObligation\MonthlyPaymentStatement::STATUS_CLOSED ? 'Lezárt' : 'Tervezet' }}
+
                                         </span>
+
                                         @if(count($statement->issues ?? []))
+
                                             <span class="badge badge-danger light" title="{{ count($statement->issues) }} hiba ennél az elszámolásnál">{{ count($statement->issues) }} hiba</span>
+
                                         @endif
+
                                     </div>
+
                                 </td>
+
                                 <td class="df-sticky-left-2 text-end">
+
                                     <a href="{{ route('dashboard.institution.payment-obligations.show', $statement) }}" class="btn btn-xs btn-outline-primary" title="Részletek">
+
                                         <i class="fa fa-eye"></i>
+
                                     </a>
+
                                     <a href="{{ route('dashboard.institution.payment-obligations.adjustments.index', $statement) }}" class="btn btn-xs btn-outline-warning" title="Korrekciók">
+
                                         <i class="fa fa-wallet"></i>
+
                                     </a>
+
+                                    @if(! $isSplit)
+
+                                        <button type="button"
+
+                                                class="btn btn-xs btn-success"
+
+                                                title="Pontos összegű befizetés rögzítése"
+
+                                                @if($quickPayRemaining > 0)
+
+                                                    data-bs-toggle="modal" data-bs-target="#quickPayModal{{ $statement->id }}"
+
+                                                @else
+
+                                                    disabled
+
+                                                @endif>
+
+                                            <i class="fa fa-check-circle"></i>
+
+                                        </button>
+
+
+                                    @endif
+
                                 </td>
+
                                 <td>{{ $statement->child->group_name ?: '—' }}</td>
+
                                 <td>{{ $statement->mealPackage?->name ?: 'Egyedi / alapértelmezett' }}</td>
+
                                 <td>
+
                                     @if($statement->child->discountType)
+
                                         <span class="badge badge-primary light" title="{{ $statement->child->discountType->name }}">
+
                                             {{ $statement->child->discountType->percentage }}% – {{ \Illuminate\Support\Str::limit($statement->child->discountType->name, 18) }}
+
                                         </span>
+
                                     @else
+
                                         <span class="text-muted">—</span>
+
                                     @endif
+
                                 </td>
+
                                 @foreach(range(1, $periods['meal_period_days_in_month']) as $dayNumber)
+
                                     @php
+
                                         $date = $periods['meal_period']->copy()->day($dayNumber)->toDateString();
+
                                         $day = $daysByDate->get($date);
+
                                         $statusClass = $day ? 'df-status-' . \Illuminate\Support\Str::of($day->status)->lower()->replace('_', '-') : '';
+
                                     @endphp
+
                                     <td class="df-payment-day-col {{ $statusClass }}" title="{{ $day?->status }} · {{ $date }}">
+
                                         @if($day)
+
                                             <a class="df-cell-link" href="{{ route('dashboard.institution.payment-obligations.show', ['statement' => $statement->id, 'date' => $date]) }}">
+
                                                 {{ $day->payable_amount > 0 ? number_format($day->payable_amount, 0, ',', ' ') : '0' }}
+
                                             </a>
+
                                         @else
+
                                             —
+
                                         @endif
+
                                     </td>
+
                                 @endforeach
+
                                 @php
+
                                     $rowTotalPayable = (int) $statement->total_payable;
+
                                     $rowPayableDisplay = \App\Support\Finance\SettlementAmountPresenter::payableDisplayAmount($rowTotalPayable);
+
                                     $rowOverpayment = \App\Support\Finance\SettlementAmountPresenter::overpaymentAmount($rowTotalPayable);
+
                                     $rowPreviousBalance = (int) $statement->previous_balance;
+
                                 @endphp
+
                                 <td>{{ $statement->planned_meal_days ?: $statement->days->where('payable_amount', '>', 0)->count() }}</td>
+
                                 <td>{{ number_format($statement->meal_amount, 0, ',', ' ') }} Ft</td>
+
                                 <td><span class="df-amount-negative">-{{ number_format($statement->previous_cancellation_credit, 0, ',', ' ') }} Ft</span></td>
+
                                 @if($isSplit)
+
                                     <td><span class="df-amount-positive">{{ number_format($statement->foundation_total_payable, 0, ',', ' ') }} Ft</span></td>
+
                                     <td><span class="df-amount-positive">{{ number_format($statement->kindergarten_total_payable, 0, ',', ' ') }} Ft</span></td>
+
                                 @else
+
                                     <td><span class="df-amount-positive">{{ number_format($statement->invoiceable_amount, 0, ',', ' ') }} Ft</span></td>
+
                                 @endif
+
                                 <td>{{ number_format($componentPaidAmount, 0, ',', ' ') }} Ft</td>
+
                                 @if($isSplit)
+
                                     <td>
+
                                         <span class="{{ ((int) ($financialSummary['foundation_balance'] ?? 0)) > 0 ? 'df-amount-negative' : (((int) ($financialSummary['foundation_balance'] ?? 0)) < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}">
+
                                             {{ number_format((int) ($financialSummary['foundation_balance'] ?? 0), 0, ',', ' ') }} Ft
+
                                         </span>
+
                                     </td>
+
                                     <td>
+
                                         <span class="{{ ((int) ($financialSummary['kindergarten_balance'] ?? 0)) > 0 ? 'df-amount-negative' : (((int) ($financialSummary['kindergarten_balance'] ?? 0)) < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}">
+
                                             {{ number_format((int) ($financialSummary['kindergarten_balance'] ?? 0), 0, ',', ' ') }} Ft
+
                                         </span>
+
                                     </td>
+
                                     <td>
+
                                         <span class="{{ ((int) ($financialSummary['net_balance'] ?? 0)) > 0 ? 'df-amount-negative' : (((int) ($financialSummary['net_balance'] ?? 0)) < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}">
+
                                             {{ number_format((int) ($financialSummary['net_balance'] ?? $statement->total_payable), 0, ',', ' ') }} Ft
+
                                         </span>
+
                                     </td>
+
                                 @else
+
                                     <td>
+
                                         <span class="{{ $rowPreviousBalance > 0 ? 'df-amount-negative' : ($rowPreviousBalance < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}" title="{{ \App\Support\Finance\SettlementAmountPresenter::previousBalanceLabel($rowPreviousBalance) }}">
+
                                             {{ \App\Support\Finance\SettlementAmountPresenter::previousBalanceLabel($rowPreviousBalance) }}: {{ number_format(\App\Support\Finance\SettlementAmountPresenter::previousBalanceDisplayAmount($rowPreviousBalance), 0, ',', ' ') }} Ft
+
                                         </span>
+
                                     </td>
+
                                 @endif
+
                                 <td>
+
                                     <strong class="df-emphasis-total {{ $rowTotalPayable > 0 ? 'df-amount-negative' : ($rowTotalPayable < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}">{{ number_format($rowPayableDisplay, 0, ',', ' ') }} Ft</strong>
+
                                     @if($rowOverpayment > 0)
+
                                         <div class="small df-amount-positive">Fennmaradó túlfizetés: {{ number_format($rowOverpayment, 0, ',', ' ') }} Ft</div>
+
                                     @endif
+
                                 </td>
+
                                 <td><strong class="df-emphasis-total {{ $rowTotalPayable > 0 ? 'df-amount-negative' : ($rowTotalPayable < 0 ? 'df-amount-positive' : 'df-amount-neutral') }}">{{ number_format($institutionSetting->grossAmount($rowPayableDisplay), 0, ',', ' ') }} Ft</strong></td>
+
                                 <td class="df-sticky-right df-billing-cell">
+
                                     <div class="df-billing-stack">
+
                                         @if($showNotRequired)
+
                                             <span class="badge bg-secondary-subtle text-secondary">Nem szükséges</span>
+
                                         @else
+
                                             @if($institutionSetting->invoicing_enabled && $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_MANUAL)
+
                                                 @php
+
                                                     $renderedInvoiceModule = true;
+
                                                 @endphp
+
                                                 <div class="df-billing-block">
+
                                                     <form method="POST"
+
                                                           action="{{ route('dashboard.institution.payment-obligations.invoice.update', $statement) }}"
+
                                                           class="confirm-form df-billing-form"
+
                                                           data-title="Mentsem a kézi számlaszámot?"
+
                                                           data-text="A számlaszám hagyományos mentéssel kerül a havi kötelezettséghez."
+
                                                           data-confirm-button-text="Igen, mentem">
+
                                                         @csrf
+
                                                         @method('PUT')
+
                                                         <div class="input-group input-group-sm">
+
                                                             <input type="text"
+
                                                                    name="invoice_number"
+
                                                                    value="{{ $statement->invoice_number }}"
+
                                                                    class="form-control @error('invoice_number') is-invalid @enderror"
+
                                                                    maxlength="100"
+
                                                                    placeholder="Számlaszám">
+
                                                             <button type="submit" class="btn btn-outline-primary">Mentés</button>
+
                                                         </div>
+
                                                     </form>
+
                                                     @if(filled($statement->invoice_number) || filled($statement->invoice_status))
+
                                                         <div class="small text-muted df-billing-meta">
+
                                                             @if(filled($statement->invoice_number))
+
                                                                 Mentett számlaszám.
+
                                                             @endif
+
                                                             @if(filled($statement->invoiced_at))
+
                                                                 Rögzítve: {{ $statement->invoiced_at->format('Y.m.d. H:i') }}
+
                                                             @endif
+
                                                         </div>
+
                                                     @endif
+
                                                 </div>
+
                                             @endif
 
                                             {{-- Az összes jelvényt (számlázási szolgáltató + online fizetés) egy közös sorban jelenítjük meg, hogy ne egymás alá kerüljenek. --}}
+
                                             <div class="d-flex align-items-center gap-1 flex-wrap">
+
                                                 @if(! $institutionSetting->invoicing_enabled)
+
                                                     <span class="badge bg-secondary-subtle text-secondary">Nincs számlázási modul</span>
+
                                                 @elseif($institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_BILLINGO || $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_SZAMLAZZ_HU)
+
                                                     @php
+
                                                         $renderedInvoiceModule = true;
+
                                                         $providerLabel = $institutionSetting->invoicing_provider === \App\Models\InstitutionSetting::INVOICING_PROVIDER_BILLINGO ? 'Billingo' : 'Számlázz.hu';
+
                                                     @endphp
+
                                                     @if(filled($statement->invoice_number))
+
                                                         <span class="badge bg-success">{{ $statement->invoice_number }}</span>
+
                                                         <span class="badge bg-light text-dark border">{{ $providerLabel }}</span>
+
                                                         @if(filled($statement->invoice_status))
+
                                                             <span class="badge bg-light text-dark border">{{ $invoiceStatusLabels[$statement->invoice_status] ?? $statement->invoice_status }}</span>
+
                                                         @endif
+
                                                     @else
+
                                                         <span class="badge bg-light text-dark border" title="{{ $providerLabel }} integráció előkészítve, valódi API-hívás nélkül.">Hamarosan</span>
+
                                                     @endif
+
                                                     @if(filled($statement->invoice_url))
+
                                                         <a href="{{ $statement->invoice_url }}" target="_blank" rel="noopener" class="btn btn-xs btn-outline-success" title="Megtekintés"><i class="fa fa-eye"></i></a>
+
                                                     @endif
+
                                                     @if(filled($statement->invoice_pdf_path))
+
                                                         <a href="{{ \Illuminate\Support\Facades\Storage::url($statement->invoice_pdf_path) }}" target="_blank" rel="noopener" class="btn btn-xs btn-outline-secondary" title="PDF"><i class="fa fa-file-pdf"></i></a>
+
                                                     @endif
+
                                                 @endif
 
                                                 @if($institutionSetting->card_payment_enabled)
+
                                                     @if(filled($institutionSetting->card_payment_provider))
+
                                                         <span class="badge bg-light text-dark border">{{ $institutionSetting->card_payment_provider }}</span>
+
                                                     @endif
+
                                                     <span class="badge {{ $paymentStatus['class'] ?? 'bg-warning text-dark' }}"
+
                                                           @unless($statement->paid_at) title="Online fizetés előkészített megjelenítés." @endunless>
+
                                                         {{ $paymentStatus['label'] ?? 'Fizetésre vár' }}
+
                                                     </span>
+
                                                     @if($statement->paid_at)
+
                                                         <span class="small text-muted" title="{{ filled($statement->payment_reference) ? 'Referencia: ' . $statement->payment_reference : '' }}">{{ $statement->paid_at->format('Y.m.d. H:i') }}</span>
+
                                                     @endif
+
                                                 @endif
 
                                                 @if($institutionSetting->invoicing_enabled && ! $renderedInvoiceModule && $institutionSetting->invoicing_provider !== \App\Models\InstitutionSetting::INVOICING_PROVIDER_MANUAL)
+
                                                     <span class="badge bg-secondary-subtle text-secondary">Nincs számlázási modul</span>
+
                                                 @endif
+
                                             </div>
+
                                         @endif
+
                                     </div>
+
                                 </td>
+
                             </tr>
+
                         @endforeach
+
                         </tbody>
+
                     </table>
+
                 </div>
 
                 <div class="mt-4">{{ $statements->links('vendor.pagination.digifood') }}</div>
+
             @else
+
                 @include('layouts.partials.components.ui.empty-state', [
+
                     'icon' => 'fa-solid fa-file-invoice-dollar',
+
                     'title' => 'Ehhez a hónaphoz még nincs kimutatás',
+
                     'text' => 'Indíts újraszámítást, és a rendszer elkészíti a kiválasztott fizetési hónap saját étkezési időszakának elszámolásait.',
+
                 ])
+
             @endif
+
         </div>
+
     </div>
+
 </div>
 
-@if(($isClosed ?? false) || ($isPartiallyClosed ?? false))
-    <div class="modal fade" id="reopenModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <form method="POST"
-                      action="{{ route('dashboard.institution.payment-obligations.reopen') }}"
-                      class="confirm-form"
-                      data-title="Biztosan újra szeretné nyitni ezt a hónapot?"
-                      data-text="Az újranyitás után a havi adatok ismét módosíthatók lesznek."
-                      data-confirm-button-text="Igen, újranyitom">
-                    @csrf
-                    <input type="hidden" name="month" value="{{ $period->format('Y-m') }}">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Hónap újranyitása</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+
+{{-- Gyors befizetés modalok.
+     Szándékosan a táblázat/card szerkezeten KÍVÜL vannak,
+     hogy a sticky táblázatcellák stacking contextje ne kerüljön
+     a Bootstrap modal és a backdrop közé. --}}
+@if($statements->count() && ! $isSplit)
+    @foreach($statements as $statement)
+        @php
+            $financialSummary = (array) ($statement->financial_summary ?? []);
+            $quickPayRemaining = (int) ($financialSummary['foundation_remaining'] ?? 0);
+        @endphp
+
+        @if($quickPayRemaining > 0)
+            <div class="modal fade"
+                 id="quickPayModal{{ $statement->id }}"
+                 tabindex="-1"
+                 aria-labelledby="quickPayModalLabel{{ $statement->id }}"
+                 aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <form method="POST"
+                              action="{{ route('dashboard.institution.payment-obligations.quick-pay', $statement) }}"
+                              onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+                            @csrf
+
+                            <div class="modal-header py-2">
+                                <h5 class="modal-title" id="quickPayModalLabel{{ $statement->id }}">
+                                    Befizetés gyors rögzítése
+                                </h5>
+                                <button type="button"
+                                        class="btn-close"
+                                        data-bs-dismiss="modal"
+                                        aria-label="Bezárás"></button>
+                            </div>
+
+                            <div class="modal-body">
+                                <div class="row g-3 mb-4">
+                                    <div class="col-12 col-md-6">
+                                        <div class="text-muted small mb-1">Étkező</div>
+                                        <div class="fw-semibold">{{ $statement->child->name }}</div>
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <div class="text-muted small mb-1">Fizetési hónap</div>
+                                        <div class="fw-semibold">{{ ucfirst($periodLabel) }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="text-center mb-4">
+                                    <div class="text-muted small mb-1">Fizetendő összeg</div>
+                                    <div class="fs-2 fw-bold" style="color: #0f766e;">
+                                        {{ number_format($quickPayRemaining, 0, ',', ' ') }} Ft
+                                    </div>
+                                </div>
+
+                                <div class="alert alert-light border mb-0">
+                                    <i class="fa-solid fa-circle-info me-2"></i>
+                                    A teljes fennmaradó havi fizetendő összeg beérkezett befizetésként kerül rögzítésre.
+                                </div>
+                            </div>
+
+                            <div class="modal-footer py-2">
+                                <button type="button"
+                                        class="btn btn-light btn-sm"
+                                        data-bs-dismiss="modal">
+                                    Mégse
+                                </button>
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    {{ number_format($quickPayRemaining, 0, ',', ' ') }} Ft befizetés rögzítése
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="modal-body">
-                        <div class="mb-0">
-                            <label for="reopen_reason" class="form-label">Újranyitás indoka</label>
-                            <textarea id="reopen_reason"
-                                      name="reopen_reason"
-                                      class="form-control @error('reopen_reason') is-invalid @enderror"
-                                      rows="3"
-                                      maxlength="191"
-                                      required
-                                      placeholder="Rövid indoklás...">{{ old('reopen_reason') }}</textarea>
-                            @error('reopen_reason')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Mégsem</button>
-                        <button type="submit" class="btn btn-danger">
-                            <i class="fa-solid fa-lock-open me-2"></i>Hónap újranyitása
-                        </button>
-                    </div>
-                </form>
+                </div>
             </div>
-        </div>
-    </div>
+        @endif
+    @endforeach
 @endif
+
+@if(($isClosed ?? false) || ($isPartiallyClosed ?? false))
+
+    <div class="modal fade" id="reopenModal" tabindex="-1" aria-hidden="true">
+
+        <div class="modal-dialog">
+
+            <div class="modal-content">
+
+                <form method="POST"
+
+                      action="{{ route('dashboard.institution.payment-obligations.reopen') }}"
+
+                      class="confirm-form"
+
+                      data-title="Biztosan újra szeretné nyitni ezt a hónapot?"
+
+                      data-text="Az újranyitás után a havi adatok ismét módosíthatók lesznek."
+
+                      data-confirm-button-text="Igen, újranyitom">
+
+                    @csrf
+
+                    <input type="hidden" name="month" value="{{ $period->format('Y-m') }}">
+
+                    <div class="modal-header">
+
+                        <h5 class="modal-title">Hónap újranyitása</h5>
+
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+
+                    </div>
+
+                    <div class="modal-body">
+
+                        <div class="mb-0">
+
+                            <label for="reopen_reason" class="form-label">Újranyitás indoka</label>
+
+                            <textarea id="reopen_reason"
+
+                                      name="reopen_reason"
+
+                                      class="form-control @error('reopen_reason') is-invalid @enderror"
+
+                                      rows="3"
+
+                                      maxlength="191"
+
+                                      required
+
+                                      placeholder="Rövid indoklás...">{{ old('reopen_reason') }}</textarea>
+
+                            @error('reopen_reason')
+
+                                <div class="invalid-feedback">{{ $message }}</div>
+
+                            @enderror
+
+                        </div>
+
+                    </div>
+
+                    <div class="modal-footer">
+
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Mégsem</button>
+
+                        <button type="submit" class="btn btn-danger">
+
+                            <i class="fa-solid fa-lock-open me-2"></i>Hónap újranyitása
+
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+@endif
+
 @endsection
 
 @push('scripts')
+
     @if(session('manual_invoice_success'))
+
         <script>
+
             document.addEventListener('DOMContentLoaded', function () {
+
                 Swal.fire({
+
                     icon: 'success',
+
                     title: 'Sikeres mentés',
+
                     text: 'A kézi számlaszám elmentve.',
+
                     confirmButtonColor: '#886CC0'
+
                 });
+
             });
+
         </script>
+
     @endif
+
     @if($errors->has('reopen_reason'))
+
         <script>
+
             document.addEventListener('DOMContentLoaded', function () {
+
                 var reopenModalEl = document.getElementById('reopenModal');
-                if (reopenModalEl && window.bootstrap) {
+
+                if (reopenModalEl && window\.bootstrap) {
+
                     new bootstrap.Modal(reopenModalEl).show();
+
                 }
+
             });
+
         </script>
+
     @endif
+
 @endpush

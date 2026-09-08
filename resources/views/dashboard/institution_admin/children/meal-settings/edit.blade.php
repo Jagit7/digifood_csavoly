@@ -183,6 +183,16 @@
 
                 block.querySelectorAll('input, select, textarea').forEach(function (field) {
                     field.disabled = ! isActive;
+
+                    // A bootstrap-select saját UI-t épít a select köré.
+                    // A disabled állapot módosítása után ezt is frissíteni kell.
+                    if (
+                        field.tagName === 'SELECT' &&
+                        window.jQuery &&
+                        typeof window.jQuery.fn.selectpicker === 'function'
+                    ) {
+                        window.jQuery(field).selectpicker('refresh');
+                    }
                 });
             });
         }

@@ -1236,7 +1236,7 @@ class PaymentObligationCalculatorService
             ->whereBetween('service_date', [$creditPeriod->toDateString(), $creditPeriodEnd->toDateString()])
             ->get();
 
-        $sourcePaymentPeriod = $creditPeriod->copy()->subMonth()->startOfMonth();
+        $sourcePaymentPeriod = $creditPeriod->copy()->startOfMonth();
 
         foreach ($lateCancellations as $cancellation) {
             if ($this->isAdvanceCancellation($institution, $cancellation, $cancellation->service_date)) {
@@ -1423,7 +1423,7 @@ class PaymentObligationCalculatorService
     private function resolvePeriods(Carbon $month): array
     {
         $paymentPeriod = $month->copy()->startOfMonth();
-        $mealPeriod = $paymentPeriod->copy()->addMonth();
+        $mealPeriod = $paymentPeriod->copy();
         $creditPeriod = $paymentPeriod->copy()->subMonth();
 
         return [

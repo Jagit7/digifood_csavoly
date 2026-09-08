@@ -34,6 +34,37 @@ class Guardian extends Model
         'activation_email_sent_at' => 'datetime',
     ];
 
+    /**
+     * Amikor egy új guardian-rekord jön létre (bármelyik forrásból - admin
+     * felület, import, vagy közvetlen kód), és van hozzá e-mail cím, de még
+     * nincs user_id-ja: ha ehhez az e-mail címhez már tartozik AKTÍV,
+     * ROLE_PARENT felhasználói fiók (mert a szülő korábban, akár egy másik
+     * intézményben, már aktiválta magát), akkor ezt a guardian-rekordot
+     * automatikusan hozzákapcsoljuk ahhoz a fiókhoz.
+     *
+     * Ez egyetlen, központi helyen garantálja az önjavítást MINDEN
+     * guardian-létrehozási úton (ChildController két helye, valamint az
+     * összes import-mechanizmus), ahelyett hogy minden egyes hívási helyen
+     * külön-külön kellene rá emlékezni - egy jövőbeli, új guardian-létrehozási
+     * pont is automatikusan helyesen fog viselkedni.
+     *
+     * Biztonságos: kizárólag akkor kapcsol, ha a guardian-rekordnak
+     * jelenleg NINCS user_id-ja, és ilyenkor is csak a saját (illetve a
+     * vele azonos e-mailű, ugyancsak gazdátlan) rekordokat érinti - egy már
+     * MÁS user_id-hoz kötött guardian-rekordot soha nem ír felül.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (self $guardian): void {
+            if ($guardian->user_id !== null || $guardian->email === null) {
+                return;
+            }
+
+            app(\App\Services\ParentPortal\ParentAccountActivationService::class)
+                ->linkOrphanedGuardiansForEmail($guardian->email);
+        });
+    }
+
     public function institution(): BelongsTo
     {
         return $this->belongsTo(Institution::class);

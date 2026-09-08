@@ -7,11 +7,13 @@ use App\Http\Requests\Dashboard\InstitutionAdmin\PaymentObligation\ManualInvoice
 use App\Http\Requests\Dashboard\InstitutionAdmin\PaymentObligation\ManualPaymentDayUpdateRequest;
 use App\Http\Requests\Dashboard\InstitutionAdmin\PaymentObligation\PaymentObligationIndexRequest;
 use App\Http\Requests\Dashboard\InstitutionAdmin\PaymentObligation\ReopenMonthRequest;
+use App\Models\AuditLog;
 use App\Models\Child;
 use App\Models\ClassGroup;
 use App\Models\DiscountType;
 use App\Models\Institution;
 use App\Models\InstitutionMealPackage;
+use App\Models\InstitutionPayment;
 use App\Models\InstitutionSetting;
 use App\Models\PaymentObligation\MonthlyPaymentDay;
 use App\Models\PaymentObligation\MonthlyPaymentStatement;
@@ -20,6 +22,8 @@ use App\Services\PaymentObligation\MonthlyPaymentStatementExportService;
 use App\Services\PaymentObligation\MonthlyPaymentStatementListService;
 use App\Services\PaymentObligation\MonthlyPaymentSummaryExportService;
 use App\Services\PaymentObligation\PaymentObligationCalculatorService;
+use App\Support\AuditLogger;
+use App\Support\Finance\PaymentComponent;
 use App\Support\PaymentObligation\MonthlyPaymentStatementDetailPresenter;
 use App\Support\PaymentObligation\MonthlyPaymentStatementPeriodHelper;
 use Illuminate\Http\RedirectResponse;
@@ -148,6 +152,80 @@ class PaymentObligationController extends Controller
             ])
             ->with('success', 'A kézi számlaszám mentése sikeres.')
             ->with('manual_invoice_success', true);
+    }
+
+    /**
+     * "Pontos összegű befizetés gyors rögzítése" - a fizetési kötelezettségek
+     * listáról. Ugyanazt a befizetés-rögzítési logikát (App\Models\InstitutionPayment
+     * + InstitutionPaymentComponentService) használja, mint a meglévő kézi
+     * befizetés-rögzítés (App\Http\Controllers\...\Finance\InstitutionPaymentController
+     * store()/quickPay() metódusai): ugyanaz a modell, ugyanaz a "completed" státusz,
+     * ugyanaz az allokáció-szinkronizálás és ugyanaz az audit log akció.
+     *
+     * A kliens csak az elszámolás azonosítóját küldi - az összeget MINDIG a
+     * szerver számolja újra, mentés pillanatában, hogy két admin egyidejű
+     * használata esetén se lehessen egy időközben már csökkent tartozásnál
+     * a régi, elavult összeget rögzíteni.
+     */
+    public function quickPay(Request $request, MonthlyPaymentStatement $statement): RedirectResponse
+    {
+        $institution = $this->institution();
+        $this->authorizeStatement($statement, $institution);
+
+        $redirect = redirect()->route('dashboard.institution.payment-obligations.index', [
+            'month' => sprintf('%04d-%02d', $statement->year, $statement->month),
+        ]);
+
+        // A kétbankszámlás (split_manual_transfer) intézmények elszámolásaihoz
+        // más pénzügyi logika/komponens-választás tartozik - ezt a funkciót
+        // szándékosan nem terjesztjük ki rájuk, hogy ne kelljen hozzájuk nyúlni.
+        if ($statement->usesSplitPaymentModel()) {
+            return $redirect->with('error', 'Ehhez az elszámoláshoz nem érhető el a gyors befizetés rögzítése.');
+        }
+
+        $statementSummary = $this->componentService
+            ->buildStatementSummaries(collect([$statement]))
+            ->get($statement->id, []);
+        $remainingAmount = max(0, (int) ($statementSummary['foundation_remaining'] ?? 0));
+
+        if ($remainingAmount <= 0) {
+            return $redirect->with('error', 'Ehhez az elszámoláshoz már nincs fennmaradó fizetendő összeg, nem hozható létre új befizetés.');
+        }
+
+        $payment = new InstitutionPayment;
+        $payment->fill([
+            'child_id' => $statement->child_id,
+            'monthly_payment_statement_id' => $statement->id,
+            'payment_component' => PaymentComponent::FOUNDATION,
+            'amount' => $remainingAmount,
+            'paid_at' => now(),
+            'payment_method' => InstitutionPayment::METHOD_BANK_TRANSFER,
+            'status' => InstitutionPayment::STATUS_COMPLETED,
+            'note' => 'Pontos összegű banki átutalás – gyors rögzítés',
+        ]);
+        $payment->institution_id = $institution->id;
+        $payment->recorded_by = $request->user()->id;
+        $payment->save();
+        $this->componentService->syncAllocationsForPayment($payment->fresh());
+
+        AuditLogger::log(
+            action: AuditLog::ACTION_INSTITUTION_PAYMENT_CREATED,
+            description: 'Befizetés gyors rögzítése a fizetési kötelezettségek oldalról: '.number_format((float) $payment->amount, 0, ',', ' ').' Ft.',
+            subject: $payment,
+            institutionId: $institution->id,
+            newValues: [
+                'child_id' => $payment->child_id,
+                'monthly_payment_statement_id' => $payment->monthly_payment_statement_id,
+                'payment_component' => $payment->payment_component,
+                'amount' => $payment->amount,
+                'paid_at' => optional($payment->paid_at)->toDateTimeString(),
+                'payment_method' => $payment->payment_method,
+                'status' => $payment->status,
+                'note' => $payment->note,
+            ],
+        );
+
+        return $redirect->with('success', 'A '.number_format((float) $payment->amount, 0, ',', ' ').' Ft összegű befizetés sikeresen rögzítésre került.');
     }
 
     public function recalculate(Request $request): RedirectResponse

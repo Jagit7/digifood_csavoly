@@ -5,7 +5,7 @@
 @php
     $formatForint = fn (int $amount): string => number_format($amount, 0, ',', ' ') . ' Ft';
     $paymentPeriod = \Illuminate\Support\Carbon::create($statement->year, $statement->month, 1);
-    $mealPeriod = $paymentPeriod->copy()->addMonth();
+    $mealPeriod = $paymentPeriod->copy();
     $creditPeriod = $paymentPeriod->copy()->subMonth();
     $isSplit = $statement->usesSplitPaymentModel();
     $financialSummary = $financialSummary ?? [];
@@ -66,7 +66,7 @@
         <div><strong>Fizetési hónap:</strong> {{ $paymentPeriod->translatedFormat('Y. F') }}</div>
         <div><strong>Étkezési időszak:</strong> {{ $mealPeriod->translatedFormat('Y. F') }}</div>
         <div><strong>Jóváírási időszak:</strong> {{ $creditPeriod->translatedFormat('Y. F') }}</div>
-        <div class="mt-2 text-muted">A havi elszámolás a következő havi étkezési napokat számolja, és ebből vonja le az előző havi, jogos lemondások jóváírását.</div>
+        <div class="mt-2 text-muted">A havi elszámolás az aktuális havi étkezési napokat számolja, és ebből vonja le az előző havi, jogos lemondások jóváírását.</div>
     </div>
 
     @if(count($statement->issues ?? []))
@@ -89,7 +89,7 @@
                 </div>
                 <div class="card-body">
                     <div class="d-flex justify-content-between py-2 border-bottom">
-                        <span>Következő havi étkezési napok</span>
+                        <span>Aktuális havi étkezési napok</span>
                         <strong>{{ number_format($statement->planned_meal_days, 0, ',', ' ') }} nap</strong>
                     </div>
                     <div class="d-flex justify-content-between py-2 border-bottom">
@@ -118,7 +118,7 @@
                         </div>
                     @else
                         <div class="pt-3 pb-2 border-bottom">
-                            <div class="d-flex justify-content-between"><span>{{ $periods['meal_period_label'] }}i étkezési díj (következő havi)</span><strong>{{ $formatForint($statement->meal_amount) }}</strong></div>
+                            <div class="d-flex justify-content-between"><span>{{ $periods['meal_period_label'] }}i étkezési díj (aktuális havi)</span><strong>{{ $formatForint($statement->meal_amount) }}</strong></div>
                             <div class="d-flex justify-content-between"><span>{{ $periods['credit_period_label'] }}i lemondások jóváírása</span><strong>-{{ $formatForint($statement->previous_cancellation_credit) }}</strong></div>
                             @if((int) $statement->billing_adjustment_amount !== 0)
                                 <div class="d-flex justify-content-between"><span>Egyéb korrekció (a havi díjat módosítja)</span><strong>{{ $formatForint($statement->billing_adjustment_amount) }}</strong></div>

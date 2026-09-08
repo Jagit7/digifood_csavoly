@@ -11,7 +11,7 @@ class MonthlyPaymentStatementPeriodHelper
     public function fromMonth(CarbonInterface $paymentPeriod): array
     {
         $paymentPeriod = Carbon::instance($paymentPeriod)->copy()->startOfMonth();
-        $mealPeriod = $paymentPeriod->copy()->addMonth();
+        $mealPeriod = $paymentPeriod->copy();
         $creditPeriod = $paymentPeriod->copy()->subMonth();
 
         return [

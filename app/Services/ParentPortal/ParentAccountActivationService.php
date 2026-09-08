@@ -153,6 +153,14 @@ class ParentAccountActivationService
         });
 
         if ($activeParentUser !== null) {
+            // Önjavítás: ha időközben (ebben vagy egy másik intézményben)
+            // keletkezett olyan guardian-rekord ugyanezzel az e-mail
+            // címmel, amit még senki nem kapcsolt a fiókjához, kössük
+            // most hozzá - így egy ismételt aktiválás-kérés is "meggyógyítja"
+            // a korábban árván maradt kapcsolatokat, anélkül hogy új
+            // tokent kellene kiadni vagy a szülőnek bármit tennie kellene.
+            $this->linkOrphanedGuardiansForEmail($email);
+
             return [null, [
                 'status' => 'already_active_parent',
                 'login_url' => route('parent.login', [], false),
@@ -160,6 +168,57 @@ class ParentAccountActivationService
         }
 
         return [$guardians, null];
+    }
+
+    /**
+     * Önjavító összekapcsolás: ha az adott e-mail címhez már tartozik AKTÍV,
+     * ROLE_PARENT `users` sor, akkor az ehhez az e-mailhez tartozó, de még
+     * SENKIHEZ nem kapcsolt (user_id === null), aktív guardian-rekordokat
+     * hozzákapcsolja ehhez a felhasználóhoz.
+     *
+     * Ez teszi lehetővé, hogy egy szülő - akinek a fiókja már aktív egyik
+     * intézményben - automatikusan hozzáférjen azokhoz a gyerekekhez is,
+     * akikhez egy MÁSIK intézmény (a szülő aktiválása előtt vagy után)
+     * ÚJABB, önálló guardian-rekordot hozott létre ugyanazzal az e-mail
+     * címmel - anélkül, hogy külön meghívót kellene elfogadnia.
+     *
+     * Biztonsági szabályok (szándékosan szigorúak):
+     *  - csak ROLE_PARENT és is_active=true felhasználóhoz kapcsolunk;
+     *  - kizárólag azokat a guardian-rekordokat kapcsoljuk hozzá, amelyeknek
+     *    JELENLEG NINCS user_id-ja - tehát még senkihez sincsenek rendelve;
+     *  - egy már MÁS user_id-hoz kötött guardian-rekordot SOHA nem írunk
+     *    felül automatikusan (ez konfliktusnak számít, ugyanúgy, mint az
+     *    activate()-ben lévő conflictingGuardians eset - kézi kezelést
+     *    igényelne, nem hallgatólagos összevonást).
+     *
+     * Nem "minden azonos e-mailű guardian gyerekeit" mutatjuk meg
+     * automatikusan - csak azokat kapcsoljuk hozzá, amelyek jelenleg
+     * ténylegesen gazdátlanok.
+     */
+    public function linkOrphanedGuardiansForEmail(string $email): ?User
+    {
+        $email = $this->normalizeEmail($email);
+
+        if ($email === '') {
+            return null;
+        }
+
+        $activeParent = User::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->where('role', User::ROLE_PARENT)
+            ->where('is_active', true)
+            ->first();
+
+        if ($activeParent === null) {
+            return null;
+        }
+
+        Guardian::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->whereNull('user_id')
+            ->update(['user_id' => $activeParent->id]);
+
+        return $activeParent;
     }
 
     private function shouldSendRealActivationEmail(): bool

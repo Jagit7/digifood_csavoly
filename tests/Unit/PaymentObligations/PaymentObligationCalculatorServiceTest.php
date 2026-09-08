@@ -37,7 +37,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         [$institution, $child] = $this->seedBasicParticipant(0);
         $service = app(PaymentObligationCalculatorService::class);
 
-        $service->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $day = $statement->days()->whereDate('date', '2026-08-03')->firstOrFail();
@@ -51,7 +51,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         [$institution, $child] = $this->seedBasicParticipant(50);
         $service = app(PaymentObligationCalculatorService::class);
 
-        $service->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $day = $child->monthlyPaymentStatements()->firstOrFail()
             ->days()
@@ -66,7 +66,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         [$institution, $child] = $this->seedBasicParticipant(100);
         $service = app(PaymentObligationCalculatorService::class);
 
-        $service->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $day = $child->monthlyPaymentStatements()->firstOrFail()
             ->days()
@@ -94,7 +94,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'updated_at' => '2026-08-01 09:00:00',
         ])->save();
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $day = $child->monthlyPaymentStatements()->firstOrFail()
             ->days()
@@ -128,11 +128,11 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'updated_at' => '2026-09-03 12:00:00',
         ])->save();
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
         $day = $child->monthlyPaymentStatements()
             ->where('year', 2026)
-            ->where('month', 8)
+            ->where('month', 9)
             ->firstOrFail()
             ->days()
             ->whereDate('date', '2026-09-07')
@@ -167,7 +167,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         ])->save();
 
         $service = app(PaymentObligationCalculatorService::class);
-        $service->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
@@ -182,7 +182,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         $this->assertSame(1000, $statement->previous_cancellation_credit);
     }
 
-    public function test_statement_month_stays_payment_month_while_days_use_next_meal_month(): void
+    public function test_statement_payment_month_and_meal_days_use_the_same_calendar_month(): void
     {
         [$institution, $child] = $this->seedBasicParticipant(0);
 
@@ -192,7 +192,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
 
         $this->assertSame(2026, $statement->year);
         $this->assertSame(10, $statement->month);
-        $this->assertSame('2026-11-01', $statement->days()->firstOrFail()->date->toDateString());
+        $this->assertSame('2026-10-01', $statement->days()->firstOrFail()->date->toDateString());
     }
 
     public function test_school_break_and_working_saturday_are_handled(): void
@@ -214,7 +214,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'type' => 'extra_working_day',
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $workingSaturday = $statement->days()->whereDate('date', '2026-08-08')->firstOrFail();
@@ -232,7 +232,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
 
         InstitutionMealPrice::query()->update(['valid_to' => '2026-08-07']);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $weekendDay = $statement->days()->whereDate('date', '2026-08-09')->firstOrFail();
@@ -255,7 +255,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'type' => 'school_break',
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $breakDay = $statement->days()->whereDate('date', '2026-08-10')->firstOrFail();
@@ -277,7 +277,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'type' => 'extra_working_day',
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $workingSaturday = $statement->days()->whereDate('date', '2026-08-08')->firstOrFail();
@@ -292,7 +292,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
 
         InstitutionMealPrice::query()->update(['valid_to' => '2026-08-14']);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 7, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
 
         $statement = $child->monthlyPaymentStatements()->firstOrFail();
         $issues = collect($statement->issues ?? []);
@@ -302,12 +302,20 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         $this->assertFalse($issues->contains(fn (string $issue) => str_contains($issue, '2026.08.16.')));
     }
 
-    public function test_august_payment_month_uses_september_meals_and_july_credits_only(): void
+    /**
+     * KÖTELEZŐ teszteset (1): aktuális havi fizetendő = aktuális havi
+     * (szeptemberi) étkezési díj - előző havi (augusztusi) jóváírandó
+     * lemondások. A két hónappal korábbi (júliusi) lemondás NEM
+     * szivároghat be a szeptemberi jóváírásba.
+     */
+    public function test_september_payable_equals_september_meals_minus_august_credited_cancellation(): void
     {
         [$institution, $child, $user] = $this->seedBasicParticipant(0);
         $service = app(PaymentObligationCalculatorService::class);
 
-        MealCancellation::create([
+        // Két hónappal korábbi (júliusi) késői lemondás - ez SOHA nem
+        // jóváírható a szeptemberi elszámolásban.
+        $julyCancellation = MealCancellation::create([
             'institution_id' => $institution->id,
             'child_id' => $child->id,
             'service_date' => '2026-07-15',
@@ -315,23 +323,15 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'status' => 'active',
             'reason' => 'Júliusi késői lemondás',
             'created_by' => $user->id,
+        ]);
+        $julyCancellation->forceFill([
             'created_at' => '2026-07-20 09:00:00',
             'updated_at' => '2026-07-20 09:00:00',
-        ]);
+        ])->save();
 
-        MealCancellation::create([
-            'institution_id' => $institution->id,
-            'child_id' => $child->id,
-            'service_date' => '2026-06-12',
-            'source' => 'admin',
-            'status' => 'active',
-            'reason' => 'Régi késői lemondás',
-            'created_by' => $user->id,
-            'created_at' => '2026-06-20 09:00:00',
-            'updated_at' => '2026-06-20 09:00:00',
-        ]);
-
-        MealCancellation::create([
+        // Előző havi (augusztusi) késői lemondás - ezt KELL jóváírni a
+        // szeptemberi elszámolásban.
+        $augustCancellation = MealCancellation::create([
             'institution_id' => $institution->id,
             'child_id' => $child->id,
             'service_date' => '2026-08-12',
@@ -339,34 +339,152 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'status' => 'active',
             'reason' => 'Augusztusi késői lemondás',
             'created_by' => $user->id,
+        ]);
+        $augustCancellation->forceFill([
             'created_at' => '2026-08-20 09:00:00',
             'updated_at' => '2026-08-20 09:00:00',
-        ]);
+        ])->save();
 
-        $service->recalculateMonth($institution, Carbon::create(2026, 5, 1));
-        $service->recalculateMonth($institution, Carbon::create(2026, 6, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 7, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
-        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 8)->firstOrFail();
+        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
 
-        $this->assertTrue($statement->days->contains(fn (MonthlyPaymentDay $day) => $day->date->isSameDay('2026-09-01')));
-        $this->assertFalse($statement->days->contains(fn (MonthlyPaymentDay $day) => $day->date->month === 8));
-        $this->assertSame(1000, $statement->previous_cancellation_credit);
+        $this->assertSame(1000, $statement->previous_cancellation_credit, 'Csak az augusztusi (előző havi) lemondás jóváírandó.');
+        $this->assertSame($statement->meal_amount - 1000, $statement->invoiceable_amount, 'Szeptemberi fizetendő = szeptemberi díj - augusztusi jóváírás.');
+        $this->assertSame((int) $statement->days->sum('payable_amount'), $statement->meal_amount, 'A szeptemberi alapdíj kizárólag a szeptemberi napok összege.');
         $this->assertDatabaseMissing('financial_adjustments', [
             'child_id' => $child->id,
             'type' => FinancialAdjustment::TYPE_CANCELLATION_CREDIT,
             'reference_year' => 2026,
-            'reference_month' => 8,
-            'reason' => 'Késői lemondás jóváírása: 2026.06.12.',
+            'reference_month' => 9,
+            'reason' => 'Késői lemondás jóváírása: 2026.07.15.',
         ]);
-        $this->assertDatabaseMissing('financial_adjustments', [
+    }
+
+    /**
+     * KÖTELEZŐ teszteset (2): az októberi étkezési napok/lemondások SOHA
+     * nem befolyásolhatják a szeptemberi fizetendőt.
+     */
+    public function test_october_meals_do_not_affect_september_payable(): void
+    {
+        [$institution, $child, $user] = $this->seedBasicParticipant(0);
+        $service = app(PaymentObligationCalculatorService::class);
+
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+        $septemberBefore = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
+        $invoiceableBefore = $septemberBefore->invoiceable_amount;
+        $mealAmountBefore = $septemberBefore->meal_amount;
+
+        // Októberi hónap kiszámítása és egy októberi késői lemondás - ezek
+        // nem módosíthatják a már kiszámolt szeptemberi elszámolást.
+        $service->recalculateMonth($institution, Carbon::create(2026, 10, 1));
+        MealCancellation::create([
+            'institution_id' => $institution->id,
             'child_id' => $child->id,
-            'type' => FinancialAdjustment::TYPE_CANCELLATION_CREDIT,
-            'reference_year' => 2026,
-            'reference_month' => 8,
-            'reason' => 'Késői lemondás jóváírása: 2026.08.12.',
+            'service_date' => '2026-10-12',
+            'source' => 'admin',
+            'status' => 'active',
+            'reason' => 'Októberi késői lemondás',
+            'created_by' => $user->id,
         ]);
+
+        $septemberAfter = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
+
+        $this->assertSame($mealAmountBefore, $septemberAfter->meal_amount, 'Az októberi hónap kiszámítása nem módosíthatja a szeptemberi alapdíjat.');
+        $this->assertSame($invoiceableBefore, $septemberAfter->invoiceable_amount, 'Az októberi hónap kiszámítása nem módosíthatja a szeptemberi fizetendőt.');
+        $this->assertFalse($septemberAfter->days->contains(fn (MonthlyPaymentDay $day) => $day->date->month === 10), 'Októberi nap nem szerepelhet a szeptemberi elszámolásban.');
+    }
+
+    /**
+     * KÖTELEZŐ teszteset (3): ha nincs előző havi jóváírandó lemondás, az
+     * aktuális havi fizetendő megegyezik az aktuális havi étkezési díjjal.
+     */
+    public function test_current_month_payable_equals_meal_fee_when_no_previous_month_cancellation(): void
+    {
+        [$institution, $child] = $this->seedBasicParticipant(0);
+        $service = app(PaymentObligationCalculatorService::class);
+
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+
+        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
+
+        $this->assertSame(0, $statement->previous_cancellation_credit);
+        $this->assertSame($statement->meal_amount, $statement->invoiceable_amount);
+    }
+
+    /**
+     * KÖTELEZŐ teszteset (4): januári elszámolásnál az "előző hónap" a
+     * megelőző év decembere - az évhatáron át is helyesen kell levonni a
+     * decemberi jóváírandó lemondást.
+     */
+    public function test_january_payable_deducts_previous_years_december_credited_cancellation(): void
+    {
+        [$institution, $child, $user] = $this->seedBasicParticipant(0);
+        $service = app(PaymentObligationCalculatorService::class);
+
+        $cancellation = MealCancellation::create([
+            'institution_id' => $institution->id,
+            'child_id' => $child->id,
+            'service_date' => '2026-12-14',
+            'source' => 'admin',
+            'status' => 'active',
+            'reason' => 'Decemberi késői lemondás',
+            'created_by' => $user->id,
+        ]);
+        $cancellation->forceFill([
+            'created_at' => '2026-12-20 09:00:00',
+            'updated_at' => '2026-12-20 09:00:00',
+        ])->save();
+
+        $service->recalculateMonth($institution, Carbon::create(2026, 12, 1));
+        $service->recalculateMonth($institution, Carbon::create(2027, 1, 1));
+        $service->recalculateMonth($institution, Carbon::create(2027, 1, 1));
+
+        $decemberStatement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 12)->firstOrFail();
+        $januaryStatement = $child->monthlyPaymentStatements()->where('year', 2027)->where('month', 1)->firstOrFail();
+
+        $this->assertTrue($decemberStatement->days->every(fn (MonthlyPaymentDay $day) => $day->date->year === 2026 && $day->date->month === 12), 'A decemberi elszámolás kizárólag decemberi napokat tartalmazhat.');
+        $this->assertTrue($januaryStatement->days->every(fn (MonthlyPaymentDay $day) => $day->date->year === 2027 && $day->date->month === 1), 'A januári elszámolás kizárólag januári napokat tartalmazhat.');
+        $this->assertSame(1000, $januaryStatement->previous_cancellation_credit, 'A januári fizetendőnek a megelőző év decemberi jóváírását kell tartalmaznia.');
+        $this->assertSame($januaryStatement->meal_amount - 1000, $januaryStatement->invoiceable_amount);
+    }
+
+    /**
+     * KÖTELEZŐ teszteset (5): egy másik intézmény gyermekének étkezési
+     * napjai és lemondásai SOHA nem szivároghatnak be egy adott intézmény
+     * fizetendő számításába.
+     */
+    public function test_another_institution_data_never_leaks_into_the_calculation(): void
+    {
+        [$institution, $child] = $this->seedBasicParticipant(0);
+        [$otherInstitution, $otherChild, $otherUser] = $this->seedBasicParticipant(0);
+
+        $otherInstitutionCancellation = MealCancellation::create([
+            'institution_id' => $otherInstitution->id,
+            'child_id' => $otherChild->id,
+            'service_date' => '2026-08-12',
+            'source' => 'admin',
+            'status' => 'active',
+            'reason' => 'Másik intézmény augusztusi lemondása',
+            'created_by' => $otherUser->id,
+        ]);
+        $otherInstitutionCancellation->forceFill([
+            'created_at' => '2026-08-20 09:00:00',
+            'updated_at' => '2026-08-20 09:00:00',
+        ])->save();
+
+        $service = app(PaymentObligationCalculatorService::class);
+        $service->recalculateMonth($otherInstitution, Carbon::create(2026, 8, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+
+        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
+
+        $this->assertSame(0, $statement->previous_cancellation_credit, 'A másik intézmény lemondása nem írható jóvá ennél az intézménynél.');
+        $this->assertSame($statement->meal_amount, $statement->invoiceable_amount);
     }
 
     public function test_first_recalculation_immediately_includes_previous_month_credit(): void
@@ -388,7 +506,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'updated_at' => '2026-09-20 09:00:00',
         ])->save();
 
-        $service->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 10, 1));
 
         $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 10)->firstOrFail();
@@ -400,7 +518,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         );
     }
 
-    public function test_august_payment_month_counts_meals_only_until_closed_valid_to_date(): void
+    public function test_september_payment_month_counts_meals_only_until_closed_valid_to_date(): void
     {
         [$institution, $child] = $this->seedBasicParticipant(0);
 
@@ -411,9 +529,9 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             'closed_at' => now(),
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
-        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 8)->firstOrFail();
+        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 9)->firstOrFail();
         $lastActiveDay = $statement->days()->whereDate('date', '2026-09-18')->firstOrFail();
         $afterClosureDay = $statement->days()->whereDate('date', '2026-09-21')->firstOrFail();
 
@@ -445,7 +563,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         ])->save();
 
         $service = app(PaymentObligationCalculatorService::class);
-        $service->recalculateMonth($institution, Carbon::create(2026, 9, 1));
+        $service->recalculateMonth($institution, Carbon::create(2026, 10, 1));
         $service->recalculateMonth($institution, Carbon::create(2026, 11, 1));
 
         $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 11)->firstOrFail();
@@ -457,12 +575,12 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             ->where('reference_month', 11)
             ->orderBy('payment_component')
             ->pluck('amount', 'payment_component');
-        $decemberDay = $statement->days()->whereDate('date', '2026-12-01')->firstOrFail();
+        $novemberDay = $statement->days()->whereDate('date', '2026-11-02')->firstOrFail();
 
         $this->assertSame(InstitutionPaymentComponentService::PAYMENT_MODEL_SPLIT_MANUAL_TRANSFER, $statement->payment_model);
         $this->assertSame(1, $statement->previous_month_cancelled_days);
-        $this->assertSame(300, $decemberDay->foundation_payable_amount);
-        $this->assertSame(350, $decemberDay->kindergarten_payable_amount);
+        $this->assertSame(300, $novemberDay->foundation_payable_amount);
+        $this->assertSame(350, $novemberDay->kindergarten_payable_amount);
         $this->assertSame(300, (int) $creditedDay[PaymentComponent::FOUNDATION]);
         $this->assertSame(350, (int) $creditedDay[PaymentComponent::KINDERGARTEN]);
         $this->assertSame(650, $statement->previous_cancellation_credit);
@@ -477,9 +595,9 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             ['component' => PaymentComponent::KINDERGARTEN, 'amount' => 700, 'valid_from' => '2026-09-01'],
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 11, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 12, 1));
 
-        $day = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 11)->firstOrFail()
+        $day = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 12)->firstOrFail()
             ->days()
             ->whereDate('date', '2026-12-01')
             ->firstOrFail();
@@ -499,9 +617,9 @@ class PaymentObligationCalculatorServiceTest extends TestCase
             ['component' => PaymentComponent::KINDERGARTEN, 'amount' => 760, 'valid_from' => '2027-01-16'],
         ]);
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 12, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2027, 1, 1));
 
-        $statement = $child->monthlyPaymentStatements()->where('year', 2026)->where('month', 12)->firstOrFail();
+        $statement = $child->monthlyPaymentStatements()->where('year', 2027)->where('month', 1)->firstOrFail();
         $beforeChange = $statement->days()->whereDate('date', '2027-01-15')->firstOrFail();
         $afterChange = $statement->days()->whereDate('date', '2027-01-18')->firstOrFail();
 
@@ -517,7 +635,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
     {
         $institution = Institution::create([
             'name' => 'Teszt Intézmény',
-            'institution_code' => 'TESZT01',
+            'institution_code' => 'TESZT'.random_int(100000, 999999),
             'type' => 'iskola',
             'active' => true,
         ]);
@@ -555,7 +673,7 @@ class PaymentObligationCalculatorServiceTest extends TestCase
         ]);
 
         $mealType = MealType::create([
-            'code' => 'lunch',
+            'code' => 'lunch-'.random_int(100000, 999999),
             'name' => 'Ebéd',
             'default_order' => 1,
         ]);

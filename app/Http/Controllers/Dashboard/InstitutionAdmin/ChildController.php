@@ -879,6 +879,12 @@ class ChildController extends Controller
             'active' => true,
         ]);
 
+        // Az új guardian-rekord automatikus összekapcsolása egy már aktív,
+        // azonos e-mail című szülői fiókkal a Guardian modell booted()
+        // metódusában, központilag történik (ld. Guardian::booted()) - így
+        // minden guardian-létrehozási úton (nem csak itt) garantáltan
+        // lefut, meghívó nélkül is.
+
         if ($canManageBilling) {
             $guardian->syncBankAccountData(
                 $guardianAttachment['guardian_bank_account_holder'] ?? null,
@@ -1216,6 +1222,12 @@ class ChildController extends Controller
             'source_type' => 'manual',
             'active' => ! empty($data['active']),
         ]);
+
+        // Az új guardian-rekord automatikus összekapcsolása egy már aktív,
+        // azonos e-mail című szülői fiókkal a Guardian modell booted()
+        // metódusában, központilag történik (ld. Guardian::booted()) - így
+        // minden guardian-létrehozási úton (nem csak itt) garantáltan
+        // lefut, meghívó nélkül is.
 
         if ($canManageBilling) {
             $guardian->syncBankAccountData(

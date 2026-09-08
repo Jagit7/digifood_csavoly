@@ -365,20 +365,21 @@ class PaymentObligationFeatureTest extends TestCase
      * hónap utolsó napja UTÁN egy plusz napot (a következő hónap 1-jét)
      * is beleszámolt az étkezési napok közé - lásd
      * PaymentObligationCalculatorService::calculateChildMonth() korábbi
-     * ->addDay() hívását. A 2026 augusztusi fizetési hónaphoz (=
-     * szeptemberi étkezési időszak) tartozó kimutatásnak pontosan a
+     * ->addDay() hívását. A 2026 szeptemberi fizetési hónaphoz (=
+     * szeptemberi étkezési időszak, mivel a javítás után a fizetési és az
+     * étkezési hónap megegyezik) tartozó kimutatásnak pontosan a
      * szeptemberi 30 naptári napot kell tartalmaznia, október 1-jét nem.
      */
     public function test_recalculate_month_does_not_include_first_day_of_next_month(): void
     {
         [$institution, $user] = $this->seedStatement();
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
         $statement = MonthlyPaymentStatement::query()
             ->where('institution_id', $institution->id)
             ->where('year', 2026)
-            ->where('month', 8)
+            ->where('month', 9)
             ->firstOrFail();
         $statement->load('days');
 
@@ -406,12 +407,12 @@ class PaymentObligationFeatureTest extends TestCase
     {
         [$institution, $user] = $this->seedStatement();
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
         $statement = MonthlyPaymentStatement::query()
             ->where('institution_id', $institution->id)
             ->where('year', 2026)
-            ->where('month', 8)
+            ->where('month', 9)
             ->firstOrFail();
 
         $countBeforeStaleDay = $statement->days()->where('payable_amount', '>', 0)->count();
@@ -430,7 +431,7 @@ class PaymentObligationFeatureTest extends TestCase
         $statement->refresh();
         $this->assertSame($countBeforeStaleDay + 1, $statement->days()->where('payable_amount', '>', 0)->count());
 
-        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 8, 1));
+        app(PaymentObligationCalculatorService::class)->recalculateMonth($institution, Carbon::create(2026, 9, 1));
 
         $statement->refresh();
         $dates = $statement->days()->get()->pluck('date')
