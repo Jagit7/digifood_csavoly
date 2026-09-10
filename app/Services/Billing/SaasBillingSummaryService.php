@@ -3,11 +3,10 @@
 namespace App\Services\Billing;
 
 use App\Mail\SaasBillingSummaryMail;
-use App\Models\Child;
 use App\Models\Institution;
-use App\Models\InstitutionEmployee;
 use App\Models\SaasBillingSummaryItem;
 use App\Models\SaasBillingSummaryRun;
+use App\Models\StudentMealSetting;
 use Carbon\CarbonImmutable;
 use DomainException;
 use Illuminate\Support\Collection;
@@ -18,216 +17,213 @@ use Throwable;
 
 class SaasBillingSummaryService
 {
-    /**
-     * Azok az aktív intézmények, amelyeknél be van állítva a Digifood
-     * havidíj / aktív étkező érték, ÉS nincsenek számlázási partnerhez
-     * rendelve (azokat a partneri "Ügyfél számlázás" kezeli, hogy ne
-     * legyen kétszeres számlázás ugyanarra az intézményre).
-     */
-    public function billableInstitutions(): Collection
+    public function __construct(private readonly InstitutionMonthlyPricingService $pricing) {}
+
+    public function billingMonth(): CarbonImmutable
     {
-        return $this->baseEligibleQuery()
-            ->whereNotNull('saas_fee_per_active_eater')
-            ->where('saas_fee_per_active_eater', '>', 0)
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Institution $institution) => $this->buildRow($institution));
+        return CarbonImmutable::now(config('digifood.business_timezone'))->startOfMonth();
     }
 
-    /**
-     * Aktív, partnerhez NEM rendelt intézmények, amelyeknél még nincs
-     * beállítva a díj - ezeket figyelmeztetésként jelenítjük meg, hogy
-     * a superadmin tudja pótolni a beállítást.
-     */
-    public function institutionsMissingRate(): Collection
+    /** Historical participation, not today's active flag or number of settings. */
+    private function childCounts(CarbonImmutable $month): Collection
     {
-        return $this->baseEligibleQuery()
-            ->where(function ($query) {
-                $query->whereNull('saas_fee_per_active_eater')
-                    ->orWhere('saas_fee_per_active_eater', '<=', 0);
-            })
-            ->orderBy('name')
-            ->get();
+        return StudentMealSetting::query()
+            ->where(fn ($query) => $query->where('eater_type', 'child')->orWhereNull('eater_type'))
+            ->whereNotNull('student_id')
+            ->whereDate('valid_from', '<=', $month->endOfMonth()->toDateString())
+            ->where(fn ($query) => $query->whereNull('valid_to')->orWhereDate('valid_to', '>=', $month->startOfMonth()->toDateString()))
+            ->where(fn ($query) => $query->whereNull('valid_to')->orWhereColumn('valid_to', '>=', 'valid_from'))
+            ->select('institution_id')
+            ->selectRaw('COUNT(DISTINCT student_id) as child_count')
+            ->groupBy('institution_id')
+            ->pluck('child_count', 'institution_id');
     }
 
-    /**
-     * Aktív intézmények, amelyek számlázási partnerhez vannak rendelve -
-     * ezeket a "Partneri ügyfél számlázás" kezeli, ezért itt csak
-     * tájékoztató jelleggel jelenítjük meg őket (nem szerepelnek sem a
-     * számlázható, sem a hiányzó díjszabású listában).
-     */
-    public function institutionsHandledByPartner(): Collection
+    /** All direct SaaS institutions; partner billing remains a separate obligation. */
+    private function calculation(CarbonImmutable $month): array
     {
-        return Institution::query()
-            ->where('active', true)
-            ->whereNotNull('billing_partner_id')
-            ->with('billingPartner:id,name')
-            ->orderBy('name')
-            ->get();
-    }
+        $counts = $this->childCounts($month);
+        $institutions = Institution::query()->whereNull('billing_partner_id')->orderBy('name')->get();
+        $rates = $this->pricing->ratesForMonth($institutions->pluck('id'), $month);
+        $rows = collect();
+        $missing = collect();
 
-    private function baseEligibleQuery()
-    {
-        return Institution::query()
-            ->where('active', true)
-            ->whereNull('billing_partner_id');
-    }
+        foreach ($institutions as $institution) {
+            $rate = $rates->get($institution->id);
+            $count = (int) $counts->get($institution->id, 0);
+            if ($rate === null) {
+                if ($institution->active || $count > 0) {
+                    $missing->push($institution);
+                }
 
-    /**
-     * A számlázható intézmények listája, kizárva azokat, amelyeknél EBBEN
-     * a hónapban már van számlázott/fizetett tétel - így egy újraküldés
-     * (előnézet vagy tényleges kiküldés) nem tünteti fel újra számlázásra
-     * várónak azt, ami már el van intézve.
-     */
-    public function pendingBillableInstitutions(CarbonImmutable $month): Collection
-    {
-        $rows = $this->billableInstitutions();
-
-        $run = SaasBillingSummaryRun::query()
-            ->where('year', $month->year)
-            ->where('month', $month->month)
-            ->first();
-
-        if ($run === null) {
-            return $rows;
+                continue;
+            }
+            $item = $this->pricing->buildInstitutionItem($institution, $rate, $count);
+            $rows->push([
+                'institution_id' => $institution->id,
+                'institution_name' => $institution->name,
+                'billing_name' => $institution->billing_name ?: $institution->name,
+                'billing_tax_number' => $institution->billing_tax_number,
+                'billing_address' => collect([$institution->billing_zip, $institution->billing_city, $institution->billing_address])->filter()->implode(' '),
+                'children_count' => $count,
+                'employees_count' => 0,
+                'eaters_count' => $count,
+                'rate' => $item['price_per_child'],
+                'fixed_monthly_fee' => $item['fixed_monthly_fee'],
+                'minimum_monthly_fee' => $item['minimum_monthly_fee'],
+                'calculation_description' => $item['calculation_description'],
+                'total_amount' => $item['net_amount'],
+                'amount_cents' => $item['net_amount_cents'],
+            ]);
         }
 
-        $handledInstitutionIds = $run->items()
-            ->where('status', '!=', SaasBillingSummaryItem::STATUS_PENDING)
-            ->pluck('institution_id')
-            ->all();
-
-        if ($handledInstitutionIds === []) {
-            return $rows;
-        }
-
-        return $rows
-            ->reject(fn (array $row) => in_array($row['institution_id'], $handledInstitutionIds, true))
-            ->values();
+        return ['rows' => $rows, 'missing' => $missing];
     }
 
-    public function activeEaterCounts(Institution $institution): array
+    /** Read-only: existing months always use their stored snapshot. */
+    public function summary(CarbonImmutable $month): array
     {
-        $childrenCount = Child::query()
-            ->where('institution_id', $institution->id)
-            ->where('active', true)
-            ->count();
+        $run = SaasBillingSummaryRun::query()->where('year', $month->year)->where('month', $month->month)->first();
+        if ($run !== null) {
+            return $this->snapshotData($run) + ['run' => $run, 'missing' => collect()];
+        }
+        $calculation = $this->calculation($month);
 
-        $employeesCount = InstitutionEmployee::query()
-            ->where('institution_id', $institution->id)
-            ->where('active', true)
-            ->count();
+        return $this->payload($month, $calculation['rows']) + ['run' => null, 'missing' => $calculation['missing']];
+    }
+
+    private function payload(CarbonImmutable $month, Collection $rows): array
+    {
+        return [
+            'monthLabel' => $this->formatMonthLabel($month),
+            'generatedAt' => CarbonImmutable::now(config('digifood.business_timezone'))->toIso8601String(),
+            'recipientEmail' => config('digifood.saas_billing_summary_recipient', 'info@digifood.hu'),
+            'rows' => $rows->all(),
+            'totalAmount' => number_format($rows->sum('amount_cents') / 100, 2, '.', ''),
+            'totalInstitutions' => $rows->count(),
+            'totalEaters' => $rows->sum('eaters_count'),
+        ];
+    }
+
+    private function snapshotData(SaasBillingSummaryRun $run): array
+    {
+        if ($run->snapshot_payload !== null) {
+            return $run->snapshot_payload;
+        }
+
+        // Legacy snapshots are displayed as stored, never repaired or repriced.
+        $rows = $run->items()->orderBy('institution_name_snapshot')->get()->map(fn ($item) => [
+            'institution_id' => $item->institution_id,
+            'institution_name' => $item->institution_name_snapshot,
+            'billing_name' => $item->institution_name_snapshot,
+            'billing_tax_number' => $item->billing_tax_number_snapshot,
+            'billing_address' => $item->billing_address_snapshot,
+            'children_count' => $item->children_count,
+            'employees_count' => $item->employees_count,
+            'eaters_count' => $item->eaters_count,
+            'rate' => $item->rate,
+            'total_amount' => $item->amount,
+            'calculation_description' => 'Korábbi mentett elszámolás (változatlan).',
+        ])->all();
 
         return [
-            'children_count' => $childrenCount,
-            'employees_count' => $employeesCount,
-            'eaters_count' => $childrenCount + $employeesCount,
+            'monthLabel' => $run->month_label,
+            'generatedAt' => ($run->sent_at ?? $run->created_at)->toIso8601String(),
+            'rows' => $rows,
+            'totalAmount' => $run->total_amount,
+            'totalInstitutions' => $run->institution_count,
+            'totalEaters' => collect($rows)->sum('eaters_count'),
         ];
+    }
+
+    public function institutionsHandledByPartner(): Collection
+    {
+        return Institution::query()->where('active', true)->whereNotNull('billing_partner_id')
+            ->with('billingPartner:id,name')->orderBy('name')->get();
     }
 
     public function alreadySentThisMonth(CarbonImmutable $month): bool
     {
-        return SaasBillingSummaryRun::query()
-            ->where('year', $month->year)
-            ->where('month', $month->month)
-            ->where('status', SaasBillingSummaryRun::STATUS_SENT)
-            ->exists();
+        return SaasBillingSummaryRun::query()->where('year', $month->year)->where('month', $month->month)
+            ->where('status', SaasBillingSummaryRun::STATUS_SENT)->exists();
     }
 
     public function lastRuns(int $limit = 12): Collection
     {
-        return SaasBillingSummaryRun::query()
-            ->with('triggeredByUser:id,name')
-            ->orderByDesc('year')
-            ->orderByDesc('month')
-            ->limit($limit)
-            ->get();
+        return SaasBillingSummaryRun::query()->with('triggeredByUser:id,name')
+            ->orderByDesc('year')->orderByDesc('month')->limit($limit)->get();
     }
 
-    /**
-     * Az összes számlázási tétel (intézményenként, hónaponként), a
-     * legfrissebbtől visszafelé - ez az a lista, amin a superadmin
-     * végig tudja vezetni az egyes intézmények számlázási állapotát.
-     */
     public function items(int $perPage = 30)
     {
-        return SaasBillingSummaryItem::query()
-            ->with(['run:id,year,month', 'institution:id,name'])
-            ->orderByDesc('id')
-            ->paginate($perPage);
+        return SaasBillingSummaryItem::query()->with(['run:id,year,month', 'institution:id,name'])
+            ->orderByDesc('id')->paginate($perPage);
     }
 
-    /**
-     * Összeállítja és elküldi a havi számlázási összesítő e-mailt
-     * az info@digifood.hu (vagy konfigurált) címre, létrehozza/frissíti
-     * az intézményenkénti számlázási tételeket, majd naplózza a
-     * futtatást (sikeres vagy sikertelen státusszal).
-     */
     public function send(CarbonImmutable $month, string $triggeredBy, ?int $triggeredByUserId = null): SaasBillingSummaryRun
     {
-        $rows = $this->pendingBillableInstitutions($month);
-        $missingRateInstitutions = $this->institutionsMissingRate();
-        $totalAmount = $rows->sum('total_amount');
+        $month = $month->startOfMonth();
+        if ($month->gt($this->billingMonth())) {
+            throw new DomainException('Jövőbeli hónap összesítője nem küldhető el.');
+        }
 
-        $data = [
-            'monthLabel' => $this->formatMonthLabel($month),
-            'generatedAt' => CarbonImmutable::now(config('digifood.business_timezone', config('app.timezone'))),
-            'rows' => $rows->all(),
-            'missingRateInstitutions' => $missingRateInstitutions->pluck('name')->all(),
-            'totalAmount' => $totalAmount,
-            'totalInstitutions' => $rows->count(),
-        ];
-
-        $run = DB::transaction(function () use ($month, $rows, $totalAmount, $triggeredBy, $triggeredByUserId) {
-            $run = SaasBillingSummaryRun::query()->updateOrCreate(
-                ['year' => $month->year, 'month' => $month->month],
-                [
-                    'institution_count' => $rows->count(),
-                    'total_amount' => $totalAmount,
-                    'status' => SaasBillingSummaryRun::STATUS_SENT,
-                    'triggered_by' => $triggeredBy,
-                    'triggered_by_user_id' => $triggeredByUserId,
-                    'sent_at' => null,
-                    'error_message' => null,
-                ]
-            );
-
-            $this->syncItems($run, $rows);
-
-            return $run;
-        });
-
-        try {
-            Mail::to($this->recipientEmail())->send(new SaasBillingSummaryMail($data));
-
-            $run->forceFill([
-                'status' => SaasBillingSummaryRun::STATUS_SENT,
-                'sent_at' => CarbonImmutable::now(),
-                'error_message' => null,
-            ])->save();
-        } catch (Throwable $exception) {
-            Log::error('SaaS havi számlázási összesítő küldése sikertelen.', [
-                'year' => $month->year,
-                'month' => $month->month,
-                'exception' => $exception->getMessage(),
+        [$run, $claimed] = DB::transaction(function () use ($month, $triggeredBy, $triggeredByUserId) {
+            // The existing unique(year, month) serializes concurrent first attempts.
+            SaasBillingSummaryRun::query()->insertOrIgnore([
+                'year' => $month->year, 'month' => $month->month,
+                'status' => SaasBillingSummaryRun::STATUS_PENDING,
+                'triggered_by' => $triggeredBy, 'triggered_by_user_id' => $triggeredByUserId,
+                'created_at' => now(), 'updated_at' => now(),
             ]);
+            $run = SaasBillingSummaryRun::query()->where('year', $month->year)->where('month', $month->month)
+                ->lockForUpdate()->firstOrFail();
 
+            // Failed/uncertain sends need investigation, never an automatic retry.
+            if ($run->status !== SaasBillingSummaryRun::STATUS_PENDING) {
+                return [$run, false];
+            }
+            $calculation = $this->calculation($month);
+            if ($calculation['missing']->isNotEmpty()) {
+                throw new DomainException('Hiányzó havi díjszabás: '.$calculation['missing']->pluck('name')->implode(', '));
+            }
+            if ($calculation['rows']->isEmpty()) {
+                throw new DomainException('Ebben a hónapban nincs számlázható intézmény.');
+            }
+            $data = $this->payload($month, $calculation['rows']);
+            foreach ($data['rows'] as $row) {
+                $run->items()->create([
+                    'institution_id' => $row['institution_id'],
+                    'institution_name_snapshot' => $row['institution_name'],
+                    'billing_tax_number_snapshot' => $row['billing_tax_number'],
+                    'billing_address_snapshot' => $row['billing_address'],
+                    'children_count' => $row['children_count'], 'employees_count' => 0,
+                    'eaters_count' => $row['eaters_count'], 'rate' => $row['rate'] ?? 0,
+                    'amount' => $row['total_amount'], 'status' => SaasBillingSummaryItem::STATUS_PENDING,
+                ]);
+            }
             $run->forceFill([
-                'status' => SaasBillingSummaryRun::STATUS_FAILED,
-                'error_message' => $exception->getMessage(),
+                'snapshot_payload' => $data, 'institution_count' => $data['totalInstitutions'],
+                'total_amount' => $data['totalAmount'], 'status' => SaasBillingSummaryRun::STATUS_SENDING,
             ])->save();
+
+            return [$run, true];
+        }, 3);
+
+        if (! $claimed) {
+            return $run;
+        }
+        try {
+            $data = $this->snapshotData($run->fresh());
+            Mail::to($data['recipientEmail'])->send(new SaasBillingSummaryMail($data));
+            $run->forceFill(['status' => SaasBillingSummaryRun::STATUS_SENT, 'sent_at' => now(), 'error_message' => null])->save();
+        } catch (Throwable $exception) {
+            $run->forceFill(['status' => SaasBillingSummaryRun::STATUS_FAILED, 'error_message' => $exception->getMessage()])->save();
+            Log::error('SaaS havi összesítő küldése sikertelen; újraküldés előtt ellenőrzendő.', ['run_id' => $run->id, 'exception' => $exception->getMessage()]);
         }
 
         return $run;
     }
 
-    /**
-     * Csak "pending" (még nem számlázott) tétel jelölhető számlázottnak -
-     * a zárolt (lockForUpdate) újraolvasás és az állapot-ellenőrzés nélkül
-     * egy véletlen dupla-submit (vagy versenyhelyzet két admin között)
-     * visszaállíthatná egy már kifizetett ("paid") tétel státuszát
-     * "invoiced"-re, miközben a paid_at mező tévesen a régi értéken marad.
-     */
     public function markItemInvoiced(SaasBillingSummaryItem $item, string $invoiceNumber, ?string $note = null): SaasBillingSummaryItem
     {
         return DB::transaction(function () use ($item, $invoiceNumber, $note) {
@@ -273,73 +269,6 @@ class SaasBillingSummaryService
 
             return $lockedItem;
         });
-    }
-
-    /**
-     * Létrehozza az új intézményekhez tartozó tételeket, és frissíti a
-     * még "pending" (nem számlázott) tételek pillanatnyi adatait -
-     * a már számlázott/fizetett tételeket viszont nem írjuk felül, hogy
-     * egy újraküldés ne rontsa el a már véglegesített számlázási adatot.
-     */
-    private function syncItems(SaasBillingSummaryRun $run, Collection $rows): void
-    {
-        foreach ($rows as $row) {
-            $existingItem = SaasBillingSummaryItem::query()
-                ->where('saas_billing_summary_run_id', $run->id)
-                ->where('institution_id', $row['institution_id'])
-                ->first();
-
-            if ($existingItem !== null && $existingItem->status !== SaasBillingSummaryItem::STATUS_PENDING) {
-                continue;
-            }
-
-            SaasBillingSummaryItem::query()->updateOrCreate(
-                [
-                    'saas_billing_summary_run_id' => $run->id,
-                    'institution_id' => $row['institution_id'],
-                ],
-                [
-                    'institution_name_snapshot' => $row['institution_name'],
-                    'billing_tax_number_snapshot' => $row['billing_tax_number'],
-                    'billing_address_snapshot' => collect([
-                        $row['billing_zip'], $row['billing_city'], $row['billing_address'],
-                    ])->filter()->implode(' ') ?: null,
-                    'children_count' => $row['children_count'],
-                    'employees_count' => $row['employees_count'],
-                    'eaters_count' => $row['eaters_count'],
-                    'rate' => $row['rate'],
-                    'amount' => $row['total_amount'],
-                    'status' => SaasBillingSummaryItem::STATUS_PENDING,
-                ]
-            );
-        }
-    }
-
-    private function buildRow(Institution $institution): array
-    {
-        $counts = $this->activeEaterCounts($institution);
-        $rate = (float) $institution->saas_fee_per_active_eater;
-        $totalAmount = round($counts['eaters_count'] * $rate, 2);
-
-        return [
-            'institution_id' => $institution->id,
-            'institution_name' => $institution->name,
-            'billing_name' => $institution->billing_name ?: $institution->name,
-            'billing_tax_number' => $institution->billing_tax_number,
-            'billing_zip' => $institution->billing_zip,
-            'billing_city' => $institution->billing_city,
-            'billing_address' => $institution->billing_address,
-            'children_count' => $counts['children_count'],
-            'employees_count' => $counts['employees_count'],
-            'eaters_count' => $counts['eaters_count'],
-            'rate' => $rate,
-            'total_amount' => $totalAmount,
-        ];
-    }
-
-    private function recipientEmail(): string
-    {
-        return config('digifood.saas_billing_summary_recipient', 'info@digifood.hu');
     }
 
     public function formatMonthLabel(CarbonImmutable $month): string

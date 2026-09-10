@@ -37,6 +37,9 @@
                             </tr>
                         </table>
 
+                        @isset($school_summary)
+                            @include('emails.partials.school-kitchen-headcount')
+                        @endisset
                         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#eef6ff;border-radius:16px;">
                             <tr>
                                 <td align="center" style="padding:20px 24px 8px 24px;font-size:13px;line-height:18px;font-weight:700;letter-spacing:0.3px;color:#4f6b95;text-transform:uppercase;">

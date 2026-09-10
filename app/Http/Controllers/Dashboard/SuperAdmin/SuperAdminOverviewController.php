@@ -25,9 +25,7 @@ class SuperAdminOverviewController extends Controller
         'bolcsode' => 'Bölcsőde',
     ];
 
-    public function __construct(private readonly DigifoodMonthlyFeeOverviewService $digifoodFeeService)
-    {
-    }
+    public function __construct(private readonly DigifoodMonthlyFeeOverviewService $digifoodFeeService) {}
 
     public function index(): View
     {
@@ -96,17 +94,9 @@ class SuperAdminOverviewController extends Controller
             [
                 'title' => 'Gyermekek',
                 'value' => $usageStats['children_total'],
-                // Felhasználói kérés: ne külön kártya legyen a Digifood
-                // havidíjnak, hanem EZ a kártya egészüljön ki vele - ld.
-                // DigifoodMonthlyFeeOverviewService (ugyanaz a képlet, mint
-                // a Gyermekek statisztikai oldalán: csak az AKTÍV
-                // ÉTKEZÉSI BEÁLLÍTÁSSAL rendelkező gyermekeket szorozzuk a
-                // havidíjjal, nem a fenti teljes, nyilvántartott létszámot).
-                'subtitle' => 'Nyilvántartott gyermek vagy tanuló · Digifood havidíj: '.(
-                    $digifoodFee['uniform_rate'] !== null
-                        ? number_format($digifoodFee['eating_count'], 0, ',', ' ').' fő × '.number_format($digifoodFee['uniform_rate'], 0, ',', ' ').' Ft'
-                        : number_format($digifoodFee['eating_count'], 0, ',', ' ').' étkező × intézményenkénti díj'
-                ).' = '.number_format($digifoodFee['total'], 0, ',', ' ').' Ft',
+                'subtitle' => $digifoodFee['month_label'].' · SaaS '.($digifoodFee['is_snapshot'] ? 'mentett összesítő' : 'előnézet').': '
+                    .number_format($digifoodFee['total'], 2, ',', ' ').' Ft'
+                    .($digifoodFee['missing_rate_count'] ? ' · Hiányzó díjszabás: '.$digifoodFee['missing_rate_count'] : ''),
                 'icon' => 'fa-solid fa-children',
                 'color' => 'orange',
             ],
@@ -129,7 +119,7 @@ class SuperAdminOverviewController extends Controller
                 'label' => 'Aktív gyermekek',
                 'value' => $usageStats['children_active'],
                 'help' => 'Aktív státuszú gyermek rekordok',
-                'icon' => 'fas fa-child'
+                'icon' => 'fas fa-child',
             ],
             [
                 'label' => 'Függő meghívások',

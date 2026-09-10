@@ -8,6 +8,8 @@ use App\Mail\KitchenDailySummaryMail;
 use App\Models\AbMenuItem;
 use App\Models\AbMenuPlan;
 use App\Models\Child;
+use App\Models\ClassCancellation;
+use App\Models\ClassGroup;
 use App\Models\DietaryRestriction;
 use App\Models\EmployeeMealCancellation;
 use App\Models\Institution;
@@ -19,7 +21,9 @@ use App\Models\KitchenNotificationLog;
 use App\Models\MealCancellation;
 use App\Models\MealType;
 use App\Models\MenuChoice;
+use App\Models\RecurringCancellationRule;
 use App\Models\SchoolBreak;
+use App\Models\SchoolYear;
 use App\Models\StudentMealSetting;
 use App\Models\StudentMealSettingItem;
 use App\Models\User;
@@ -360,8 +364,7 @@ class KitchenNotificationFeatureTest extends TestCase
                     'Uzsonna' => 3,
                 ]
                 && $summary['dietary_breakdown']->pluck('count', 'name')->all() === [
-                    'Laktóz' => 1,
-                    'Glutén' => 1,
+                    'Laktóz- és gluténmentes' => 1,
                 ]
                 && str_contains($summary['subject'], '2026.09.10.')
                 && str_contains($summary['subject'], '3 fő');
@@ -482,6 +485,114 @@ class KitchenNotificationFeatureTest extends TestCase
             'id' => $log->id,
             'status' => KitchenNotificationLog::STATUS_SENT,
         ]);
+    }
+
+    public function test_school_sends_one_email_with_all_classes_and_unique_cancelled_children(): void
+    {
+        $institution = $this->createConfiguredInstitution('KSCHOOL', ['konyha@example.test'], true, 9, 30);
+        [$lunch, $snack] = $this->createMealTypes($institution);
+        $year = SchoolYear::create(['institution_id' => $institution->id, 'name' => '2026/2027', 'starts_on' => '2026-09-01', 'ends_on' => '2027-08-31', 'is_current' => true]);
+        $classes = collect(['10.A', '2.A', '1.B', '1.A'])->mapWithKeys(function ($name) use ($institution, $year) {
+            return [$name => ClassGroup::create(['institution_id' => $institution->id, 'school_year_id' => $year->id, 'name' => $name, 'active' => true])];
+        });
+        ClassGroup::create(['institution_id' => $institution->id, 'school_year_id' => $year->id, 'name' => 'Inaktív osztály', 'active' => false]);
+        $children = collect([
+            ['Nagy Péter', '1.A'], ['Kiss Anna', '1.A'], ['Étkező Elek', '1.A'],
+            ['Jelen Júlia', '1.B'], ['Csoportos Cili', '2.A'],
+        ])->mapWithKeys(function ($data) use ($institution, $lunch, $snack) {
+            [$name, $group] = $data;
+            $child = $this->createChild($institution->id, $name);
+            $child->update(['group_name' => $group]);
+            $this->assignChildCustomMealSetting($institution->id, $child->id, $group === '1.B' ? [$lunch->id] : [$lunch->id, $snack->id]);
+
+            return [$name => $child];
+        });
+        $missing = $this->createChild($institution->id, 'Beállítás nélkül');
+        $missing->update(['group_name' => '1.A']);
+        foreach (['Nagy Péter', 'Kiss Anna', 'Beállítás nélkül'] as $name) {
+            MealCancellation::create(['institution_id' => $institution->id, 'child_id' => $name === 'Beállítás nélkül' ? $missing->id : $children[$name]->id, 'service_date' => '2026-09-10', 'source' => MealCancellation::SOURCE_ADMIN, 'status' => MealCancellation::STATUS_ACTIVE]);
+        }
+        // Both individual and recurring cancellation still represent one child.
+        RecurringCancellationRule::create(['institution_id' => $institution->id, 'child_id' => $children['Kiss Anna']->id, 'weekday' => 4, 'starts_on' => '2026-09-01', 'source' => 'admin', 'status' => RecurringCancellationRule::STATUS_ACTIVE]);
+        $classes['2.A']->children()->attach($children['Csoportos Cili']->id, ['status' => 'active', 'joined_on' => '2026-09-01']);
+        ClassCancellation::create(['institution_id' => $institution->id, 'class_group_id' => $classes['2.A']->id, 'date_from' => '2026-09-10', 'date_to' => '2026-09-10']);
+        // Multiple settings do not duplicate an eater, either.
+        $this->assignChildCustomMealSetting($institution->id, $children['Étkező Elek']->id, [$lunch->id, $snack->id]);
+        $future = $this->createChild($institution->id, 'Később kezd');
+        $future->update(['group_name' => '1.B']);
+        StudentMealSetting::create(['student_id' => $future->id, 'institution_id' => $institution->id, 'mode' => 'custom', 'valid_from' => '2026-09-11']);
+        $expired = $this->createChild($institution->id, 'Már megszűnt');
+        $expired->update(['group_name' => '1.B']);
+        StudentMealSetting::create(['student_id' => $expired->id, 'institution_id' => $institution->id, 'mode' => 'custom', 'valid_from' => '2026-09-01', 'valid_to' => '2026-09-09']);
+
+        Queue::fake();
+        Mail::fake();
+        CarbonImmutable::setTestNow('2026-09-09 09:31:00 Europe/Budapest');
+        Artisan::call('digifood:kitchen-notifications:dispatch');
+        Artisan::call('digifood:kitchen-notifications:dispatch');
+        Queue::assertPushed(SendKitchenDailySummaryJob::class, 1);
+        $log = KitchenNotificationLog::where('institution_id', $institution->id)->firstOrFail();
+        $job = new SendKitchenDailySummaryJob($log->id);
+        $job->handle(app(KitchenDailySummaryService::class));
+        $job->handle(app(KitchenDailySummaryService::class));
+        Mail::assertSentCount(1);
+        Mail::assertSent(KitchenDailySummaryMail::class, function ($mail) {
+            $school = $mail->summary['school_summary'];
+            $this->assertSame(5, $school['total']);
+            $this->assertSame(3, $school['absent']);
+            $this->assertSame(2, $school['eating']);
+            $this->assertSame(['1.A', '1.B', '2.A', '10.A'], $school['classes']->pluck('name')->all());
+            $classes = $school['classes']->keyBy('name');
+            $this->assertSame([3, 2, 1], [$classes['1.A']['total'], $classes['1.A']['absent'], $classes['1.A']['eating']]);
+            $this->assertSame([1, 0, 1], [$classes['1.B']['total'], $classes['1.B']['absent'], $classes['1.B']['eating']]);
+            $this->assertSame([1, 1, 0], [$classes['2.A']['total'], $classes['2.A']['absent'], $classes['2.A']['eating']]);
+            $this->assertSame([0, 0, 0], [$classes['10.A']['total'], $classes['10.A']['absent'], $classes['10.A']['eating']]);
+            $this->assertSame(['Kiss Anna', 'Nagy Péter'], $classes['1.A']['absent_children']->pluck('name')->all());
+            $this->assertSame(['Csoportos Cili'], $classes['2.A']['absent_children']->pluck('name')->all());
+            $this->assertSame(['Ebéd' => 2, 'Uzsonna' => 1], $mail->summary['meal_type_counts']->pluck('child_count', 'name')->all());
+            $html = $mail->render();
+            foreach (['1.A', '1.B', '2.A', '10.A', '2026.09.10.', 'Nincs hiányzó / lemondott gyermek.'] as $text) {
+                $this->assertStringContainsString($text, $html);
+            }
+            $this->assertStringNotContainsString('Inaktív osztály', $html);
+            foreach (['Kiss Anna', 'Nagy Péter', 'Csoportos Cili'] as $name) {
+                $this->assertSame(1, substr_count($html, $name));
+            }
+            $this->assertTrue(strpos($html, 'Kiss Anna') < strpos($html, '>1.B</h3>'));
+            $this->assertTrue(strpos($html, 'Csoportos Cili') > strpos($html, '>2.A</h3>'));
+
+            return true;
+        });
+    }
+
+    public function test_kindergarten_and_nursery_keep_existing_summary_and_template_content(): void
+    {
+        foreach (['ovoda', 'bolcsode'] as $type) {
+            $institution = $this->createConfiguredInstitution('K'.$type, ['konyha@example.test'], true, 9, 30);
+            $institution->update(['type' => $type]);
+            [$lunch] = $this->createMealTypes($institution, includeSnack: false);
+            $child = $this->createChild($institution->id, 'Étkező Emma');
+            $cancelled = $this->createChild($institution->id, 'Hiányzó Hanna');
+            foreach ([$child, $cancelled] as $eater) {
+                $this->assignChildCustomMealSetting($institution->id, $eater->id, [$lunch->id]);
+            }
+            MealCancellation::create(['institution_id' => $institution->id, 'child_id' => $cancelled->id, 'service_date' => '2026-09-10', 'source' => MealCancellation::SOURCE_ADMIN, 'status' => MealCancellation::STATUS_ACTIVE]);
+            $employee = $this->createEmployee($institution->id, 'Dolgozó Dénes');
+            $this->assignEmployeeCustomMealSetting($institution->id, $employee->id, [$lunch->id]);
+            $summary = app(KitchenDailySummaryService::class)->buildSummary($institution, '2026-09-10');
+            $this->assertArrayNotHasKey('school_summary', $summary);
+            $this->assertSame(2, $summary['stats']['daily_eaters']);
+            $this->assertSame(1, $summary['stats']['child_cancelled_meals']);
+            $this->assertSame(['Ebéd' => 2], $summary['meal_type_counts']->pluck('count', 'name')->all());
+            $mail = new KitchenDailySummaryMail($summary);
+            $this->assertSame('emails.kitchen-daily-summary', $mail->content()->view);
+            $html = $mail->render();
+            $this->assertStringContainsString('Gyermekek: <strong>1</strong>', $html);
+            $this->assertStringContainsString('Dolgozók: <strong>1</strong>', $html);
+            $this->assertStringNotContainsString('Hiányzó Hanna', $html);
+            $this->assertStringNotContainsString('ÖSSZESÍTÉS – GYERMEKEK', $html);
+            $this->assertStringNotContainsString('Napi konyhai létszám –', $html);
+        }
     }
 
     private function createInstitutionAdmin(string $code): array

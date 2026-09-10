@@ -8,10 +8,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SaasBillingSummaryRun extends Model
 {
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_SENDING = 'sending';
+
     public const STATUS_SENT = 'sent';
+
     public const STATUS_FAILED = 'failed';
 
     public const TRIGGERED_BY_SCHEDULE = 'schedule';
+
     public const TRIGGERED_BY_MANUAL = 'manual';
 
     protected $fillable = [
@@ -27,6 +33,7 @@ class SaasBillingSummaryRun extends Model
     ];
 
     protected $casts = [
+        'snapshot_payload' => 'array',
         'year' => 'integer',
         'month' => 'integer',
         'institution_count' => 'integer',
@@ -47,6 +54,8 @@ class SaasBillingSummaryRun extends Model
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
+            self::STATUS_PENDING => 'Küldésre vár',
+            self::STATUS_SENDING => 'Küldés folyamatban / ellenőrzendő',
             self::STATUS_SENT => 'Elküldve',
             self::STATUS_FAILED => 'Sikertelen',
             default => $this->status,

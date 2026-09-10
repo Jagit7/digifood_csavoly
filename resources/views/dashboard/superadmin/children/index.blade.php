@@ -40,10 +40,9 @@
         ])
         @include('layouts.partials.components.ui.stats-card', [
             'title' => 'Digifood havidíj',
-            'value' => number_format($digifoodFee['total'], 0, ',', ' ').' Ft',
-            'subtitle' => $digifoodFee['uniform_rate'] !== null
-                ? number_format($digifoodFee['eating_count'], 0, ',', ' ').' fő × '.number_format($digifoodFee['uniform_rate'], 0, ',', ' ').' Ft'
-                : number_format($digifoodFee['eating_count'], 0, ',', ' ').' étkező gyermek × intézményenkénti havidíj, összesítve',
+            'value' => number_format($digifoodFee['total'], 2, ',', ' ').' Ft',
+            'subtitle' => $digifoodFee['month_label'].' · '.($digifoodFee['is_snapshot'] ? 'Mentett SaaS-összesítő' : 'SaaS-előnézet')
+                .($digifoodFee['missing_rate_count'] ? ' · Hiányzó díjszabás: '.$digifoodFee['missing_rate_count'] : ''),
             'icon' => 'fa-solid fa-file-invoice-dollar',
             'color' => 'red',
         ])

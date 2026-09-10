@@ -5,7 +5,7 @@
 @section('content')
     @include('layouts.partials.components.ui.page-header', [
         'title' => 'Közvetlen intézményi számlázás (SaaS díj)',
-        'subtitle' => 'Csak azoknak az aktív intézményeknek, amelyek NINCSENEK számlázási partnerhez rendelve. Aktív étkezőszám (diák + dolgozó) alapú havidíj, kiküldve a(z) '.$recipientEmail.' címre minden hónap '.$dayOfMonth.'. napján.',
+        'subtitle' => 'Közvetlen SaaS-elszámolás a havi étkező gyermeklétszám és a historikus díjszabás alapján. Minden hónap '.$dayOfMonth.'. napján az aktuális hónap összesítője készül a(z) '.$recipientEmail.' címre.',
         'buttons' => [
             [
                 'url' => route('dashboard.revenue-overview.index'),
@@ -20,26 +20,32 @@
         <div class="alert alert-danger">{{ $message }}</div>
     @enderror
 
+    <form method="GET" class="d-flex gap-2 mb-3">
+        <label for="billing-month">Elszámolási hónap</label>
+        <input id="billing-month" type="month" name="month" value="{{ $selectedMonth }}" max="{{ $maximumMonth }}" required>
+        <button class="btn btn-outline-primary" type="submit">Megnyitás</button>
+    </form>
+
     <div class="row">
         @include('layouts.partials.components.ui.stats-card', [
             'title' => 'Számlázható intézmények',
             'value' => $rows->count(),
-            'subtitle' => 'Van beállítva Ft/fő díj, nincs partnerhez rendelve',
+            'subtitle' => 'A kiválasztott havi összesítő intézményei',
             'icon' => 'fa-solid fa-school',
             'color' => 'blue',
         ])
 
         @include('layouts.partials.components.ui.stats-card', [
-            'title' => 'Aktív étkezők összesen',
+            'title' => 'Havi étkezők összesen',
             'value' => $totalEaters,
-            'subtitle' => 'Diák + dolgozó, a fenti intézményekben',
+            'subtitle' => 'Gyermekek; régi snapshot esetén az eredeti létszám',
             'icon' => 'fa-solid fa-utensils',
             'color' => 'green',
         ])
 
         @include('layouts.partials.components.ui.stats-card', [
             'title' => 'Számlázható összeg',
-            'value' => number_format($totalAmount, 0, ',', ' ').' Ft',
+            'value' => number_format($totalAmount, 2, ',', ' ').' Ft',
             'subtitle' => $monthLabel,
             'icon' => 'fa-solid fa-file-invoice-dollar',
             'color' => 'orange',
@@ -48,7 +54,7 @@
         @include('layouts.partials.components.ui.stats-card', [
             'title' => 'Hiányzó díjszabás',
             'value' => $missingRateInstitutions->count(),
-            'subtitle' => 'Aktív, partnerhez nem rendelt intézmény, nincs díja',
+            'subtitle' => 'Nincs a hónap első napjára érvényes díj',
             'icon' => 'fa-solid fa-triangle-exclamation',
             'color' => 'purple',
         ])
@@ -57,12 +63,18 @@
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-                <h4 class="card-title mb-1">{{ $monthLabel }} - előnézet</h4>
+                <h4 class="card-title mb-1">{{ $monthLabel }} - {{ $snapshotRun ? 'mentett összesítő' : 'előnézet' }}</h4>
                 <p class="text-muted mb-0">
-                    Ez azt mutatja, mi menne ki, ha most küldenénk el az összesítőt - a már ebben a hónapban
-                    számlázott vagy fizetett intézmények itt nem szerepelnek újra.
-                    @if($alreadySent)
-                        Ebben a hónapban már ki lett küldve az automatikus összesítő.
+                    @if($snapshotRun)
+                        A mentett havi adatok nem változnak a későbbi módosításoktól. Állapot: {{ $snapshotRun->status_label }}.
+                        @if($snapshotRun->snapshot_payload === null)
+                            Korábbi elszámolás, az eredeti számítás és létszám változatlanul megőrizve.
+                        @endif
+                        @if($snapshotRun->status !== \App\Models\SaasBillingSummaryRun::STATUS_SENT)
+                            A kézbesítés ellenőrzendő; automatikus újraküldés nincs.
+                        @endif
+                    @else
+                        Az előnézet a küldéskor rögzül. A teljes havi összeg a számlázási és fizetési státuszoktól független.
                     @endif
                 </p>
             </div>
@@ -75,9 +87,10 @@
                   data-confirm-button-text="Küldés"
                   data-cancel-button-text="Mégse">
                 @csrf
-                <button type="submit" class="btn btn-primary" @disabled($rows->isEmpty())>
+                <input type="hidden" name="month" value="{{ $selectedMonth }}">
+                <button type="submit" class="btn btn-primary" @disabled($rows->isEmpty() || $snapshotRun || $missingRateInstitutions->isNotEmpty())>
                     <i class="fa-solid fa-paper-plane me-1"></i>
-                    Küldés most{{ $alreadySent ? ' (újraküldés)' : '' }}
+                    {{ $snapshotRun ? 'Küldés már rögzítve' : 'Küldés most' }}
                 </button>
             </form>
         </div>
@@ -87,7 +100,7 @@
                 @include('layouts.partials.components.ui.empty-state', [
                     'icon' => 'fa-solid fa-file-invoice-dollar',
                     'title' => 'Nincs számlázható intézmény',
-                    'text' => 'Állíts be Ft/fő díjat legalább egy aktív, partnerhez nem rendelt intézménynél az intézmény szerkesztő oldalán.',
+                    'text' => 'A havi elszámoláshoz historikus intézményi díjszabás szükséges.',
                 ])
             @else
                 <div class="table-responsive">
@@ -95,10 +108,13 @@
                         <thead class="table-light">
                         <tr>
                             <th>Intézmény</th>
-                            <th class="text-end">Aktív gyerek</th>
-                            <th class="text-end">Aktív dolgozó</th>
-                            <th class="text-end">Összes étkező</th>
-                            <th class="text-end">Ft / fő</th>
+                            <th class="text-end">Étkező gyermekek</th>
+                            @if($snapshotRun && $snapshotRun->snapshot_payload === null)
+                                <th class="text-end">Korábbi dolgozólétszám</th>
+                                <th class="text-end">Korábbi összlétszám</th>
+                            @endif
+                            <th class="text-end">Egységár</th>
+                            <th>Számítás</th>
                             <th class="text-end">Számlázható összeg</th>
                         </tr>
                         </thead>
@@ -112,10 +128,13 @@
                                     </div>
                                 </td>
                                 <td class="text-end">{{ $row['children_count'] }}</td>
-                                <td class="text-end">{{ $row['employees_count'] }}</td>
-                                <td class="text-end fw-semibold">{{ $row['eaters_count'] }}</td>
-                                <td class="text-end">{{ number_format($row['rate'], 0, ',', ' ') }} Ft</td>
-                                <td class="text-end fw-semibold">{{ number_format($row['total_amount'], 0, ',', ' ') }} Ft</td>
+                                @if($snapshotRun && $snapshotRun->snapshot_payload === null)
+                                    <td class="text-end">{{ $row['employees_count'] }}</td>
+                                    <td class="text-end fw-semibold">{{ $row['eaters_count'] }}</td>
+                                @endif
+                                <td class="text-end">{{ $row['rate'] !== null ? number_format($row['rate'], 2, ',', ' ').' Ft' : 'Fix díj' }}</td>
+                                <td>{{ $row['calculation_description'] }}</td>
+                                <td class="text-end fw-semibold">{{ number_format($row['total_amount'], 2, ',', ' ') }} Ft</td>
                             </tr>
                         @endforeach
                         </tbody>
@@ -132,13 +151,13 @@
             </div>
             <div class="card-body">
                 <p class="text-muted">
-                    Ezek az aktív, partnerhez nem rendelt intézmények nincsenek benne a fenti összesítőben, mert
-                    nincs beállítva náluk Digifood havidíj / aktív étkező érték:
+                    Az alábbi intézményekhez nincs a hónap első napjára érvényes historikus díjszabás.
+                    A teljes összesítő küldéséhez előbb pótold a hiányzó díjakat:
                 </p>
                 <ul class="mb-0">
                     @foreach($missingRateInstitutions as $institution)
                         <li>
-                            <a href="{{ route('dashboard.institutions.edit', $institution) }}">{{ $institution->name }}</a>
+                            <a href="{{ route('dashboard.institutions.billing-rates.index', $institution) }}">{{ $institution->name }}</a>
                         </li>
                     @endforeach
                 </ul>
@@ -193,7 +212,7 @@
                                 <td>{{ $item->run?->month_label }}</td>
                                 <td>{{ $item->institution_name_snapshot }}</td>
                                 <td class="text-end">{{ $item->eaters_count }}</td>
-                                <td class="text-end fw-semibold">{{ number_format($item->amount, 0, ',', ' ') }} Ft</td>
+                                <td class="text-end fw-semibold">{{ number_format($item->amount, 2, ',', ' ') }} Ft</td>
                                 <td>
                                     <span class="badge {{ $item->status_badge_class }} light">{{ $item->status_label }}</span>
                                 </td>
@@ -213,7 +232,7 @@
                                               action="{{ route('dashboard.saas-billing-summary.items.mark-paid', $item) }}"
                                               class="confirm-form d-inline"
                                               data-title="Biztosan fizetettnek jelöli?"
-                                              data-text="{{ $item->institution_name_snapshot }} - {{ number_format($item->amount, 0, ',', ' ') }} Ft"
+                                              data-text="{{ $item->institution_name_snapshot }} - {{ number_format($item->amount, 2, ',', ' ') }} Ft"
                                               data-confirm-button-text="Fizetve"
                                               data-cancel-button-text="Mégse">
                                             @csrf
@@ -264,7 +283,7 @@
                             <tr>
                                 <td>{{ $run->month_label }}</td>
                                 <td class="text-end">{{ $run->institution_count }}</td>
-                                <td class="text-end">{{ number_format($run->total_amount, 0, ',', ' ') }} Ft</td>
+                                <td class="text-end">{{ number_format($run->total_amount, 2, ',', ' ') }} Ft</td>
                                 <td>
                                     <span class="badge {{ $run->status_badge_class }} light">{{ $run->status_label }}</span>
                                     @if($run->status === \App\Models\SaasBillingSummaryRun::STATUS_FAILED && $run->error_message)

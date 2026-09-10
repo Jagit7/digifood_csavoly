@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\SaasBillingSummaryRun;
 use App\Services\Billing\SaasBillingSummaryService;
 use App\Services\InstitutionCalendarService;
+use DomainException;
 use Illuminate\Console\Command;
 
 class DispatchSaasBillingSummaryCommand extends Command
@@ -37,7 +39,19 @@ class DispatchSaasBillingSummaryCommand extends Command
             return self::SUCCESS;
         }
 
-        $service->send($month, 'schedule');
+        try {
+            $run = $service->send($month, 'schedule');
+        } catch (DomainException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        if ($run->status !== SaasBillingSummaryRun::STATUS_SENT) {
+            $this->error('A havi küldés ellenőrzést igényel: '.($run->error_message ?: $run->status));
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

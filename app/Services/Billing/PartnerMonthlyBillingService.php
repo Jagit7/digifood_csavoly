@@ -4,13 +4,10 @@ namespace App\Services\Billing;
 
 use App\Models\BillingPartner;
 use App\Models\Child;
-use App\Models\Institution;
-use App\Models\InstitutionBillingRate;
 use App\Models\PartnerMonthlyBilling;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use DomainException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PartnerMonthlyBillingService
@@ -99,18 +96,7 @@ class PartnerMonthlyBillingService
             ->groupBy('institution_id')
             ->pluck('total', 'institution_id');
 
-        $rates = InstitutionBillingRate::query()
-            ->whereIn('institution_id', $institutionIds)
-            ->whereDate('valid_from', '<=', $billingMonth->toDateString())
-            ->where(function ($query) use ($billingMonth) {
-                $query->whereNull('valid_to')
-                    ->orWhereDate('valid_to', '>=', $billingMonth->toDateString());
-            })
-            ->orderByDesc('valid_from')
-            ->orderByDesc('id')
-            ->get()
-            ->groupBy('institution_id')
-            ->map(fn (Collection $group) => $group->first());
+        $rates = app(InstitutionMonthlyPricingService::class)->ratesForMonth($institutionIds, $billingMonth);
 
         $items = [];
         $totalChildren = 0;
@@ -128,7 +114,7 @@ class PartnerMonthlyBillingService
             }
 
             $childCount = (int) ($childCounts[$institution->id] ?? 0);
-            $itemCalculation = $this->buildInstitutionItem($institution, $rate, $childCount);
+            $itemCalculation = app(InstitutionMonthlyPricingService::class)->buildInstitutionItem($institution, $rate, $childCount);
 
             $items[] = $itemCalculation;
             $totalChildren += $childCount;
@@ -150,55 +136,13 @@ class PartnerMonthlyBillingService
         ];
     }
 
-    private function buildInstitutionItem(
-        Institution $institution,
-        InstitutionBillingRate $rate,
-        int $childCount
-    ): array {
-        $pricePerChildCents = $this->decimalToCents($rate->price_per_child);
-        $fixedMonthlyFeeCents = $this->decimalToCents($rate->fixed_monthly_fee);
-        $minimumMonthlyFeeCents = $this->decimalToCents($rate->minimum_monthly_fee);
-
-        if ($fixedMonthlyFeeCents !== null) {
-            $baseAmountCents = $fixedMonthlyFeeCents;
-            $description = 'Fix havi díj: '.$this->formatMoney($fixedMonthlyFeeCents);
-        } else {
-            $baseAmountCents = $childCount * ($pricePerChildCents ?? 0);
-            $description = sprintf(
-                '%d fő × %s = %s',
-                $childCount,
-                $this->formatMoney($pricePerChildCents ?? 0),
-                $this->formatMoney($baseAmountCents)
-            );
-        }
-
-        $netAmountCents = $baseAmountCents;
-
-        if ($minimumMonthlyFeeCents !== null && $minimumMonthlyFeeCents > $netAmountCents) {
-            $netAmountCents = $minimumMonthlyFeeCents;
-            $description .= ', alkalmazott minimumdíj: '.$this->formatMoney($minimumMonthlyFeeCents);
-        }
-
-        return [
-            'institution_id' => $institution->id,
-            'institution_name_snapshot' => $institution->name,
-            'child_count' => $childCount,
-            'price_per_child' => $this->centsToDatabaseDecimal($pricePerChildCents),
-            'fixed_monthly_fee' => $this->centsToDatabaseDecimal($fixedMonthlyFeeCents),
-            'minimum_monthly_fee' => $this->centsToDatabaseDecimal($minimumMonthlyFeeCents),
-            'net_amount' => $this->centsToDatabaseDecimal($netAmountCents),
-            'calculation_description' => $description,
-            'net_amount_cents' => $netAmountCents,
-        ];
-    }
-
     private function normalizeMonth(CarbonInterface|string $month): CarbonImmutable
     {
         if ($month instanceof CarbonInterface) {
             return CarbonImmutable::instance($month)->startOfMonth();
         }
 
-        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+        if (! preg_match('/^\d{4}-\d{2}$/', $month)) {
             throw new DomainException('A hónap formátuma érvénytelen. A várt formátum: YYYY-MM.');
         }
 
@@ -226,7 +170,7 @@ class PartnerMonthlyBillingService
     {
         $normalized = trim(str_replace(',', '.', $value));
 
-        if (!preg_match('/^-?\d+(?:\.\d+)?$/', $normalized)) {
+        if (! preg_match('/^-?\d+(?:\.\d+)?$/', $normalized)) {
             throw new DomainException(sprintf('Érvénytelen pénzösszeg: %s', $value));
         }
 

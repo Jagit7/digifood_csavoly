@@ -2,6 +2,7 @@
 
 namespace App\Services\Kitchen;
 
+use App\Models\ClassGroup;
 use App\Models\Institution;
 use App\Models\InstitutionMealSetting;
 use App\Models\StudentMealSetting;
@@ -119,7 +120,7 @@ class KitchenDailySummaryService
         $menuItem = $childRows->pluck('menu_item')->first(fn ($item) => $item !== null);
         $cutoff = $this->calendar->cancellationDeadline($institution->id, $date);
 
-        return [
+        $summary = [
             'institution' => $institution,
             'service_date' => $date,
             'service_date_label' => $date->translatedFormat('Y. F j., l'),
@@ -138,6 +139,69 @@ class KitchenDailySummaryService
                 $date->format('Y.m.d.'),
                 (int) ($stats['daily_eaters'] ?? 0)
             ),
+        ];
+
+        if ($institution->type === Institution::TYPE_SCHOOL) {
+            $summary['school_summary'] = $this->schoolSummary($institution, $childRows);
+        }
+
+        return $summary;
+    }
+
+    /** Group the existing daily statuses; do not calculate eligibility or cancellations again. */
+    private function schoolSummary(Institution $institution, Collection $childRows): array
+    {
+        $childRows = $childRows->unique(fn (array $row) => $row['child']->id)->values();
+        // Daily operation uses group_name; class transfers also update this field.
+        // Include registered active classes even when they have no children yet.
+        $names = ClassGroup::query()
+            ->where('institution_id', $institution->id)
+            ->where('active', true)
+            ->pluck('name')
+            ->concat($childRows->pluck('child.group_name'))
+            ->map(fn ($name) => trim((string) $name))
+            ->filter(fn (string $name) => $name !== '')
+            ->unique()
+            ->sort(fn (string $a, string $b) => strnatcasecmp($a, $b))
+            ->values();
+
+        $eligibleRows = $childRows->whereIn('status', [
+            DailyMealHeadcountService::STATUS_EATING,
+            DailyMealHeadcountService::STATUS_CANCELLED,
+        ]);
+        $grouped = $eligibleRows->groupBy(fn (array $row) => trim((string) $row['child']->group_name));
+        if ($grouped->has('')) {
+            $names->push('');
+        }
+        $collator = class_exists(\Collator::class) ? new \Collator('hu_HU') : null;
+        $normalize = fn (string $name) => strtr(mb_strtolower($name, 'UTF-8'), [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ö' => 'o', 'ő' => 'o',
+            'ú' => 'u', 'ü' => 'u', 'ű' => 'u',
+        ]);
+        $classes = $names->map(function (string $name) use ($grouped, $collator, $normalize) {
+            $rows = $grouped->get($name, collect());
+            $absent = $rows->where('status', DailyMealHeadcountService::STATUS_CANCELLED)
+                ->map(fn (array $row) => ['id' => $row['child']->id, 'name' => $row['child']->name])
+                ->sort(function (array $a, array $b) use ($collator, $normalize) {
+                    $order = $collator ? $collator->compare($a['name'], $b['name']) : strcmp($normalize($a['name']), $normalize($b['name']));
+
+                    return $order ?: ($a['id'] <=> $b['id']);
+                })->values();
+
+            return [
+                'name' => $name !== '' ? $name : 'Osztály nélkül',
+                'total' => $rows->count(),
+                'absent' => $absent->count(),
+                'eating' => $rows->count() - $absent->count(),
+                'absent_children' => $absent,
+            ];
+        });
+
+        return [
+            'total' => $classes->sum('total'),
+            'absent' => $classes->sum('absent'),
+            'eating' => $classes->sum('eating'),
+            'classes' => $classes,
         ];
     }
 

@@ -125,14 +125,16 @@
                         "
                     >
                         <p style="margin: 0 0 18px 0;">
-                            Az alábbiakban a(z) <strong>{{ $monthLabel }}</strong> hónapra vonatkozó, aktív étkezőszám
-                            (diák + dolgozó) alapján számlázható intézményi összesítő található. Az összeg
-                            intézményenként az aktuális aktív étkezőszám és a beállított Ft/fő díj szorzata.
+                            Az alábbiakban a(z) <strong>{{ $monthLabel }}</strong> hónapra vonatkozó, havi étkező gyermeklétszám
+                            alapján számlázható intézményi összesítő található. Az összeg
+                            intézményenként a hónapra érvényes díjszabás alapján készült,
+                            a fix- és minimumdíjak figyelembevételével. Egy gyermek havonta egyszer számít,
+                            ha legalább egy napon érvényes étkezési beállítása volt.
                         </p>
 
                         <p style="margin: 0 0 22px 0; color: #7c8595; font-size: 13px;">
                             Összesen <strong style="color:#3d4451;">{{ $totalInstitutions }}</strong> intézmény,
-                            mindösszesen <strong style="color:#3d4451;">{{ number_format($totalAmount, 0, ',', ' ') }} Ft</strong>
+                            mindösszesen <strong style="color:#3d4451;">{{ number_format($totalAmount, 2, ',', ' ') }} Ft</strong>
                             számlázható összeg.
                         </p>
 
@@ -147,24 +149,20 @@
                         >
                             <tr>
                                 <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;">Intézmény</td>
-                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Gyerek</td>
-                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Dolgozó</td>
-                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Étkező</td>
-                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Ft / fő</td>
-                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Számlázható</td>
+                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Étkező gyermekek</td>
+                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Egységár</td>
+                                <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; color: #7c8595; text-transform: uppercase; border-bottom: 2px solid #edf0f5;" align="right">Fizetendő</td>
                             </tr>
                             @forelse($rows as $row)
                                 <tr>
                                     <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7;">{{ $row['institution_name'] }}</td>
-                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7;" align="right">{{ $row['children_count'] }}</td>
-                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7;" align="right">{{ $row['employees_count'] }}</td>
                                     <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7; font-weight: 700;" align="right">{{ $row['eaters_count'] }}</td>
-                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7;" align="right">{{ number_format($row['rate'], 0, ',', ' ') }}</td>
-                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7; font-weight: 700; color:#d94a16;" align="right">{{ number_format($row['total_amount'], 0, ',', ' ') }} Ft</td>
+                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7;" align="right">{{ $row['rate'] !== null ? number_format($row['rate'], 2, ',', ' ').' Ft' : 'Fix díj' }}</td>
+                                    <td style="padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #f1f3f7; font-weight: 700; color:#d94a16;" align="right">{{ number_format($row['total_amount'], 2, ',', ' ') }} Ft</td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" style="padding: 14px 10px; font-size: 13px; color: #7c8595;">
+                                    <td colspan="4" style="padding: 14px 10px; font-size: 13px; color: #7c8595;">
                                         Ebben a hónapban egyetlen intézménynél sincs beállítva számlázási díj.
                                     </td>
                                 </tr>
@@ -194,11 +192,9 @@
                                             <div style="font-size: 13px; color: #5b6272; line-height: 1.6;">
                                                 Adószám: {{ $row['billing_tax_number'] ?: '—' }}<br>
                                                 Cím:
-                                                {{ collect([$row['billing_zip'], $row['billing_city'], $row['billing_address']])->filter()->implode(' ') ?: '—' }}
+                                                {{ $row['billing_address'] ?: '—' }}
                                                 <br>
-                                                Aktív étkezők: {{ $row['eaters_count'] }} fő ({{ $row['children_count'] }} diák + {{ $row['employees_count'] }} dolgozó)
-                                                &times; {{ number_format($row['rate'], 0, ',', ' ') }} Ft
-                                                = <strong>{{ number_format($row['total_amount'], 0, ',', ' ') }} Ft</strong>
+                                                {{ $row['calculation_description'] }}
                                             </div>
                                         </td>
                                     </tr>
@@ -206,25 +202,6 @@
                             @endforeach
                         @endif
 
-                        {{-- Hiányzó díjszabás figyelmeztetés --}}
-                        @if(count($missingRateInstitutions) > 0)
-                            <table
-                                role="presentation"
-                                width="100%"
-                                cellspacing="0"
-                                cellpadding="0"
-                                border="0"
-                                style="width: 100%; background-color: #fff8ec; border: 1px solid #f3e3c0; border-radius: 8px; margin-top: 10px;"
-                            >
-                                <tr>
-                                    <td style="padding: 14px 16px; font-size: 13px; color: #7a5a1e; line-height: 1.6;">
-                                        <strong>Nincs beállítva Digifood díj az alábbi aktív intézményeknél</strong>
-                                        (ezért nem szerepelnek a fenti összesítőben):<br>
-                                        {{ implode(', ', $missingRateInstitutions) }}
-                                    </td>
-                                </tr>
-                            </table>
-                        @endif
                     </td>
                 </tr>
 
@@ -250,7 +227,7 @@
                             color: #7c8595;
                         "
                     >
-                        Ez az összesítő automatikusan készült {{ $generatedAt->format('Y.m.d. H:i') }} időpontban.
+                        Ez az összesítő automatikusan készült {{ \Carbon\CarbonImmutable::parse($generatedAt)->format('Y.m.d. H:i') }} időpontban.
                         Nem minősül számlának, kizárólag a Számlázz.hu-s kézi számlázás előkészítését segíti.
                     </td>
                 </tr>
@@ -282,6 +259,9 @@
 
                         <div style="font-size: 11px; line-height: 17px; color: #9aa2af;">
                             Digifood · digitális étkezési és menzakezelő rendszer
+                        </div>
+                        <div style="margin-top:20px; font-size:20px; font-weight:700; color:#d94a16;">
+                            ÖSSZESEN FIZETENDŐ: {{ number_format($totalAmount, 2, ',', ' ') }} Ft
                         </div>
                     </td>
                 </tr>
